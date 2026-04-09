@@ -52,7 +52,7 @@ export default function AppDetailPage() {
     )
   }
 
-  const shareUrl = `https://appaba.app/view/${app.slug}`
+  const shareUrl = `${import.meta.env.VITE_APP_URL}/view/${app.slug}`
 
   return (
     <div className="min-h-screen bg-gray-50">

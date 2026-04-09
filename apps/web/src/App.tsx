@@ -4,6 +4,7 @@ import AuthPage from './pages/AuthPage'
 import DashboardPage from './pages/DashboardPage'
 import NewAppPage from './pages/NewAppPage'
 import AppDetailPage from './pages/AppDetailPage'
+import AppViewPage from './pages/AppViewPage'
 
 function Spinner() {
   return (
@@ -22,6 +23,7 @@ function AppRoutes() {
       <Route path="/" element={session ? <DashboardPage /> : <Navigate to="/auth" replace />} />
       <Route path="/apps/new" element={session ? <NewAppPage /> : <Navigate to="/auth" replace />} />
       <Route path="/apps/:id" element={session ? <AppDetailPage /> : <Navigate to="/auth" replace />} />
+      <Route path="/view/:slug" element={<AppViewPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )
