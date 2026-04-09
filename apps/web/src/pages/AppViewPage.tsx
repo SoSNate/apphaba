@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 
+const APP_URL = import.meta.env.VITE_APP_URL ?? ''
+
 export default function AppViewPage() {
   const { slug } = useParams<{ slug: string }>()
   const [iframeSrc, setIframeSrc] = useState<string | null>(null)
@@ -38,11 +40,31 @@ export default function AppViewPage() {
       const indexPath = await findIndexHtml(app.storage_path)
       if (!indexPath) { setError('Could not load app'); return }
 
-      const { data } = supabase.storage
-        .from('app-files')
-        .getPublicUrl(indexPath)
+      // Relative path from storage_path (e.g. "index.html" or "dist/index.html")
+      const relativePath = indexPath.replace(app.storage_path, '')
+      const baseDir = relativePath.includes('/')
+        ? relativePath.split('/').slice(0, -1).join('/') + '/'
+        : ''
 
-      setIframeSrc(data.publicUrl)
+      // Fetch HTML and inject <base> tag so relative assets resolve correctly
+      const { data: blob } = await supabase.storage
+        .from('app-files')
+        .download(indexPath)
+
+      if (!blob) { setError('Could not load app'); return }
+
+      let html = await blob.text()
+
+      // Build the public base URL for assets
+      const { data: { publicUrl } } = supabase.storage
+        .from('app-files')
+        .getPublicUrl(`${app.storage_path}${baseDir}`)
+
+      // Inject <base href="..."> so all relative paths resolve to Supabase
+      html = html.replace('<head>', `<head><base href="${publicUrl}">`)
+
+      const blob2 = new Blob([html], { type: 'text/html' })
+      setIframeSrc(URL.createObjectURL(blob2))
     }
     load()
   }, [slug])
@@ -67,7 +89,7 @@ export default function AppViewPage() {
     <iframe
       src={iframeSrc}
       className="fixed inset-0 w-full h-full border-none"
-      sandbox="allow-scripts allow-same-origin allow-forms"
+      sandbox="allow-scripts allow-same-origin allow-forms allow-modals"
       title={slug}
     />
   )
