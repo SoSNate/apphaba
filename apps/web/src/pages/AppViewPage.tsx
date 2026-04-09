@@ -38,12 +38,11 @@ export default function AppViewPage() {
       const indexPath = await findIndexHtml(app.storage_path)
       if (!indexPath) { setError('Could not load app'); return }
 
-      const { data } = await supabase.storage
+      const { data } = supabase.storage
         .from('app-files')
-        .createSignedUrl(indexPath, 3600)
+        .getPublicUrl(indexPath)
 
-      if (!data?.signedUrl) { setError('Could not load app'); return }
-      setIframeSrc(data.signedUrl)
+      setIframeSrc(data.publicUrl)
     }
     load()
   }, [slug])
