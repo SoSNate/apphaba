@@ -77,16 +77,24 @@ export default async function handler(req, res) {
   const buffer = Buffer.from(await data.arrayBuffer())
   const mime = getMime(storagePath)
 
-  // For HTML: rewrite all absolute paths to go through this proxy
+  // For HTML: rewrite absolute paths to go through this proxy
   if (mime.includes('text/html')) {
     let html = buffer.toString('utf-8')
-    // Replace absolute paths like src="/physicsistica/..." → src="/api/app/slug/physicsistica/..."
-    // and src="./..." or src="../..." remain relative — browser resolves them correctly
-    html = html.replace(/(src|href)="(\/[^"]+)"/g, (_, attr, path) => {
-      // Skip data URIs and protocol-relative URLs
+
+    // Detect the base prefix used by Vite (e.g. "/physicsistica/")
+    // by finding the first absolute path in src/href attributes
+    const baseMatch = html.match(/(?:src|href)="(\/[^"]+?\/assets\/)/)
+    const viteBase = baseMatch ? baseMatch[1].replace(/assets\/$/, '') : '/'
+
+    // Rewrite all absolute paths:
+    // /physicsistica/assets/foo.js → /api/app/slug/assets/foo.js
+    html = html.replace(/(src|href)="(\/[^"]*?)"/g, (_, attr, path) => {
       if (path.startsWith('//')) return `${attr}="${path}"`
-      return `${attr}="/api/app/${slug}${path}"`
+      // Strip the vite base prefix, then prepend our proxy path
+      const stripped = viteBase !== '/' ? path.replace(viteBase, '/') : path
+      return `${attr}="/api/app/${slug}${stripped}"`
     })
+
     res.setHeader('Content-Type', 'text/html; charset=utf-8')
     res.setHeader('Cache-Control', 'no-cache')
     res.setHeader('Access-Control-Allow-Origin', '*')
