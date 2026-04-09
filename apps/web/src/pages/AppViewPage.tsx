@@ -57,11 +57,12 @@ export default function AppViewPage() {
 
       // Build the public base URL for assets — must end with /
       const assetBase = `${app.storage_path}${baseDir}`
-      const baseUrl = `${import.meta.env.VITE_SUPABASE_URL}/storage/v1/object/public/app-files/${assetBase}`
-      const baseHref = baseUrl.endsWith('/') ? baseUrl : baseUrl + '/'
+      const baseHref = `${import.meta.env.VITE_SUPABASE_URL}/storage/v1/object/public/app-files/${assetBase}`.replace(/\/?$/, '/')
 
-      // Inject <base href="..."> so all relative paths resolve to Supabase
-      html = html.replace('<head>', `<head><base href="${baseHref}">`)
+      // Replace all relative src/href with absolute Supabase URLs
+      html = html
+        .replace(/(src|href)="\//g, `$1="${baseHref}`)
+        .replace(/(src|href)="(?!http|\/\/|data:)([^"]+)"/g, `$1="${baseHref}$2"`)
 
       const blob2 = new Blob([html], { type: 'text/html' })
       setIframeSrc(URL.createObjectURL(blob2))
