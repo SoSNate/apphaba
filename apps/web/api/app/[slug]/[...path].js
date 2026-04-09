@@ -6,24 +6,27 @@ const supabase = createClient(
 )
 
 const MIME = {
-  html: 'text/html; charset=utf-8',
-  js:   'application/javascript',
-  css:  'text/css',
-  json: 'application/json',
-  svg:  'image/svg+xml',
-  png:  'image/png',
-  jpg:  'image/jpeg',
-  ico:  'image/x-icon',
-  woff2:'font/woff2',
-  woff: 'font/woff',
-  ttf:  'font/ttf',
-  map:  'application/json',
+  html:  'text/html; charset=utf-8',
+  js:    'application/javascript',
+  css:   'text/css',
+  json:  'application/json',
+  svg:   'image/svg+xml',
+  png:   'image/png',
+  jpg:   'image/jpeg',
+  ico:   'image/x-icon',
+  woff2: 'font/woff2',
+  woff:  'font/woff',
+  ttf:   'font/ttf',
+  map:   'application/json',
 }
 
 function getMime(filePath) {
   const ext = filePath.split('.').pop() ?? ''
   return MIME[ext] ?? 'application/octet-stream'
 }
+
+// Cache index path per slug to avoid repeated recursive searches
+const indexCache = {}
 
 async function findIndexHtml(storagePath) {
   const { data: files } = await supabase.storage
@@ -55,29 +58,42 @@ export default async function handler(req, res) {
   if (!app.is_public) return res.status(403).send('App is private')
   if (!app.storage_path) return res.status(404).send('No files uploaded')
 
-  let storagePath
-
-  if (!filePath) {
-    // Serving index.html — find it recursively
-    storagePath = await findIndexHtml(app.storage_path)
-    if (!storagePath) return res.status(404).send('index.html not found')
-  } else {
-    // Serving a specific file — find base dir first
+  // Find index.html once and cache the base directory
+  if (!indexCache[slug]) {
     const indexPath = await findIndexHtml(app.storage_path)
-    if (!indexPath) return res.status(404).send('App not found')
-    const baseDir = indexPath.replace(/index\.html$/, '')
-    storagePath = `${baseDir}${filePath}`
+    if (!indexPath) return res.status(404).send('index.html not found')
+    indexCache[slug] = indexPath.replace(/index\.html$/, '')
   }
+  const baseDir = indexCache[slug]
+
+  let storagePath = filePath ? `${baseDir}${filePath}` : `${baseDir}index.html`
 
   const { data, error } = await supabase.storage
     .from('app-files')
     .download(storagePath)
 
-  if (error || !data) return res.status(404).send('File not found')
+  if (error || !data) return res.status(404).send('File not found: ' + storagePath)
 
   const buffer = Buffer.from(await data.arrayBuffer())
+  const mime = getMime(storagePath)
 
-  res.setHeader('Content-Type', getMime(storagePath))
+  // For HTML: rewrite all absolute paths to go through this proxy
+  if (mime.includes('text/html')) {
+    let html = buffer.toString('utf-8')
+    // Replace absolute paths like src="/physicsistica/..." → src="/api/app/slug/physicsistica/..."
+    // and src="./..." or src="../..." remain relative — browser resolves them correctly
+    html = html.replace(/(src|href)="(\/[^"]+)"/g, (_, attr, path) => {
+      // Skip data URIs and protocol-relative URLs
+      if (path.startsWith('//')) return `${attr}="${path}"`
+      return `${attr}="/api/app/${slug}${path}"`
+    })
+    res.setHeader('Content-Type', 'text/html; charset=utf-8')
+    res.setHeader('Cache-Control', 'no-cache')
+    res.setHeader('Access-Control-Allow-Origin', '*')
+    return res.send(html)
+  }
+
+  res.setHeader('Content-Type', mime)
   res.setHeader('Cache-Control', 'public, max-age=300')
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.send(buffer)
