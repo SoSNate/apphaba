@@ -121,11 +121,13 @@ export default async function handler(req, res) {
       return res.send(errorHtml)
     }
 
-    // Rewrite all absolute paths to go through this proxy
-    html = html.replace(/(src|href)="(\/[^"]*?)"/g, (_, attr, path) => {
-      if (path.startsWith('//')) return `${attr}="${path}"`
-      return `${attr}="/api/app/${slug}${path}"`
-    })
+    // Rewrite relative paths (./assets/...) and absolute paths (/assets/...)
+    html = html
+      .replace(/(src|href)="\.\//g, `$1="/api/app/${slug}/`)
+      .replace(/(src|href)="(\/[^/][^"]*?)"/g, (_, attr, path) => {
+        if (path.startsWith('//')) return `${attr}="${path}"`
+        return `${attr}="/api/app/${slug}${path}"`
+      })
 
     res.setHeader('Content-Type', 'text/html; charset=utf-8')
     res.setHeader('Cache-Control', 'no-cache')
