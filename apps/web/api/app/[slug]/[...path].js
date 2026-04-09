@@ -45,7 +45,9 @@ async function findIndexHtml(storagePath) {
 
 export default async function handler(req, res) {
   const { slug, path: pathParts } = req.query
-  const filePath = pathParts ? pathParts.join('/') : null
+  const filePath = pathParts
+    ? (Array.isArray(pathParts) ? pathParts.join('/') : pathParts)
+    : null
 
   // Get app record
   const { data: app } = await supabase
