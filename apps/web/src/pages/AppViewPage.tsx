@@ -19,8 +19,25 @@ export default function AppViewPage() {
       if (!app.is_public) { setError('This app is private'); return }
       if (!app.storage_path) { setError('No files uploaded yet'); return }
 
-      // Get signed URL for index.html
-      const indexPath = `${app.storage_path}index.html`
+      // Find index.html recursively under storage_path
+      async function findIndexHtml(prefix: string): Promise<string | null> {
+        const { data: files } = await supabase.storage
+          .from('app-files')
+          .list(prefix, { limit: 100 })
+        if (!files) return null
+        for (const f of files) {
+          if (f.name === 'index.html' && f.id !== null) return `${prefix}${f.name}`
+          if (f.id === null) {
+            const found = await findIndexHtml(`${prefix}${f.name}/`)
+            if (found) return found
+          }
+        }
+        return null
+      }
+
+      const indexPath = await findIndexHtml(app.storage_path)
+      if (!indexPath) { setError('Could not load app'); return }
+
       const { data } = await supabase.storage
         .from('app-files')
         .createSignedUrl(indexPath, 3600)
