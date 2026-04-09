@@ -1,0 +1,14 @@
+{
+  "name": "appaba",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "dev:web": "pnpm --filter web dev",
+    "dev:mobile": "pnpm --filter mobile dev",
+    "build:web": "pnpm --filter web build",
+    "build:mobile": "pnpm --filter mobile build",
+    "cap:sync": "pnpm --filter mobile cap:sync",
+    "cap:android": "pnpm --filter mobile cap:android",
+    "cap:ios": "pnpm --filter mobile cap:ios"
+  }
+}
