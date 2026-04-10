@@ -1,17 +1,20 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { App as CapApp } from '@capacitor/app'
 import { useAuth } from './hooks/useAuth'
 import { AuthScreen } from './screens/AuthScreen'
 import { AppListScreen } from './screens/AppListScreen'
 import { AppViewerScreen } from './screens/AppViewerScreen'
+import { VibeCodingScreen } from './screens/VibeCodingScreen'
+import { SettingsScreen } from './screens/SettingsScreen'
 import { onNotificationTap } from './lib/notifications'
-import { useState } from 'react'
 import { supabase } from './lib/supabase'
 import type { App } from '@appaba/shared'
 
 type Screen =
   | { name: 'list' }
   | { name: 'viewer'; appId: string; appName: string }
+  | { name: 'vibes' }
+  | { name: 'settings' }
 
 function Spinner() {
   return (
@@ -66,6 +69,19 @@ export default function AppRoot() {
     )
   }
 
+  if (screen.name === 'vibes') {
+    return (
+      <VibeCodingScreen
+        onBack={() => setScreen({ name: 'list' })}
+        onOpenSettings={() => setScreen({ name: 'settings' })}
+      />
+    )
+  }
+
+  if (screen.name === 'settings') {
+    return <SettingsScreen onBack={() => setScreen({ name: 'list' })} />
+  }
+
   return (
     <AppListScreen
       onOpenApp={async (appId: string) => {
@@ -76,6 +92,8 @@ export default function AppRoot() {
           appName: (app.data as App | null)?.name ?? 'App',
         })
       }}
+      onOpenVibes={() => setScreen({ name: 'vibes' })}
+      onOpenSettings={() => setScreen({ name: 'settings' })}
     />
   )
 }

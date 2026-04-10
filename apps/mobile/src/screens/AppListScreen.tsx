@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Download, Play, RefreshCw, LogOut, Smartphone } from 'lucide-react'
+import { Download, Play, RefreshCw, LogOut, Smartphone, Zap, Settings } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
 import { useApps } from '../hooks/useApps'
 import { useRealtime } from '../hooks/useRealtime'
@@ -9,9 +9,11 @@ import type { App } from '@appaba/shared'
 
 interface Props {
   onOpenApp: (appId: string) => void
+  onOpenVibes: () => void
+  onOpenSettings: () => void
 }
 
-export function AppListScreen({ onOpenApp }: Props) {
+export function AppListScreen({ onOpenApp, onOpenVibes, onOpenSettings }: Props) {
   const { user, signOut } = useAuth()
   const { apps, loading, loadApps, markDownloaded, markUpdated } = useApps(user)
   const [downloading, setDownloading] = useState<Record<string, string>>({})
@@ -58,7 +60,7 @@ export function AppListScreen({ onOpenApp }: Props) {
         </div>
       </header>
 
-      <main className="flex-1 px-5 py-5">
+      <main className="flex-1 px-5 py-5 pb-24">
         {loading ? (
           <div className="space-y-3">
             {[1, 2, 3].map(i => (
@@ -132,6 +134,30 @@ export function AppListScreen({ onOpenApp }: Props) {
           </div>
         )}
       </main>
+
+      {/* Bottom Nav */}
+      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 flex">
+        <button
+          className="flex-1 flex flex-col items-center gap-0.5 py-3 text-indigo-600"
+        >
+          <Smartphone className="w-5 h-5" />
+          <span className="text-xs font-medium">My Apps</span>
+        </button>
+        <button
+          onClick={onOpenVibes}
+          className="flex-1 flex flex-col items-center gap-0.5 py-3 text-gray-400"
+        >
+          <Zap className="w-5 h-5" />
+          <span className="text-xs font-medium">Vibe</span>
+        </button>
+        <button
+          onClick={onOpenSettings}
+          className="flex-1 flex flex-col items-center gap-0.5 py-3 text-gray-400"
+        >
+          <Settings className="w-5 h-5" />
+          <span className="text-xs font-medium">Settings</span>
+        </button>
+      </nav>
     </div>
   )
 }
