@@ -1,13 +1,96 @@
 import { useState, useEffect, useRef } from 'react'
 import { Capacitor } from '@capacitor/core'
+import { Geolocation } from '@capacitor/geolocation'
+import { Camera } from '@capacitor/camera'
+import { Haptics, ImpactStyle } from '@capacitor/haptics'
+import { Share } from '@capacitor/share'
+import { Clipboard } from '@capacitor/clipboard'
+import { Toast } from '@capacitor/toast'
+import { Device } from '@capacitor/device'
+import { Network } from '@capacitor/network'
+import { ScreenOrientation } from '@capacitor/screen-orientation'
+import { Preferences } from '@capacitor/preferences'
 import { ArrowLeft, AlertCircle } from 'lucide-react'
 import { getAppIndexUri } from '../lib/filesystem'
 
-// Capacitor plugins available to mini-apps via postMessage bridge
-const ALLOWED_PLUGINS = new Set([
-  'Geolocation', 'Camera', 'Haptics', 'Share',
-  'Clipboard', 'Toast', 'Device', 'Network',
-])
+// Full plugin registry — every method exposed to mini-apps
+const PLUGIN_REGISTRY: Record<string, Record<string, (...args: any[]) => Promise<any>>> = {
+  Geolocation: {
+    getCurrentPosition: (opts?: any) => Geolocation.getCurrentPosition(opts),
+    checkPermissions: () => Geolocation.checkPermissions(),
+    requestPermissions: () => Geolocation.requestPermissions(),
+  },
+  Camera: {
+    getPhoto: (opts: any) => Camera.getPhoto(opts),
+    checkPermissions: () => Camera.checkPermissions(),
+    requestPermissions: () => Camera.requestPermissions(),
+  },
+  Haptics: {
+    impact: (opts?: any) => Haptics.impact(opts ?? { style: ImpactStyle.Medium }),
+    vibrate: (opts?: any) => Haptics.vibrate(opts),
+    selectionStart: () => Haptics.selectionStart(),
+    selectionChanged: () => Haptics.selectionChanged(),
+    selectionEnd: () => Haptics.selectionEnd(),
+  },
+  Share: {
+    share: (opts: any) => Share.share(opts),
+    canShare: () => Share.canShare(),
+  },
+  Clipboard: {
+    write: (opts: any) => Clipboard.write(opts),
+    read: () => Clipboard.read(),
+  },
+  Toast: {
+    show: (opts: any) => Toast.show(opts),
+  },
+  Device: {
+    getInfo: () => Device.getInfo(),
+    getId: () => Device.getId(),
+    getBatteryInfo: () => Device.getBatteryInfo(),
+    getLanguageCode: () => Device.getLanguageCode(),
+  },
+  Network: {
+    getStatus: () => Network.getStatus(),
+  },
+  ScreenOrientation: {
+    orientation: () => ScreenOrientation.orientation(),
+    lock: (opts: any) => ScreenOrientation.lock(opts),
+    unlock: () => ScreenOrientation.unlock(),
+  },
+  Preferences: {
+    set: (opts: any) => Preferences.set(opts),
+    get: (opts: any) => Preferences.get(opts),
+    remove: (opts: any) => Preferences.remove(opts),
+    clear: () => Preferences.clear(),
+    keys: () => Preferences.keys(),
+  },
+}
+
+// What capabilities this device supports — sent to mini-app on load
+async function detectCapabilities() {
+  const info = await Device.getInfo()
+  const network = await Network.getStatus()
+  const battery = await Device.getBatteryInfo()
+
+  return {
+    platform: Capacitor.getPlatform(),
+    device: {
+      model: info.model,
+      osVersion: info.osVersion,
+      manufacturer: info.manufacturer,
+      isVirtual: info.isVirtual,
+    },
+    network: {
+      connected: network.connected,
+      type: network.connectionType,
+    },
+    battery: {
+      level: battery.batteryLevel,
+      charging: battery.isCharging,
+    },
+    plugins: Object.keys(PLUGIN_REGISTRY),
+  }
+}
 
 interface Props {
   appId: string
@@ -23,26 +106,37 @@ export function AppViewerScreen({ appId, appName, onBack }: Props) {
   useEffect(() => {
     getAppIndexUri(appId)
       .then(rawUri => {
-        // convertFileSrc maps file:// → capacitor://localhost (bypasses cross-origin restriction)
         const converted = Capacitor.convertFileSrc(rawUri)
         setUri(converted)
       })
       .catch(() => setError('Could not load app. Try re-downloading it.'))
   }, [appId])
 
-  // postMessage bridge: mini-app → Host → Capacitor plugin → mini-app
+  // Send capabilities to mini-app as soon as iframe loads
+  async function handleIframeLoad() {
+    try {
+      const caps = await detectCapabilities()
+      iframeRef.current?.contentWindow?.postMessage(
+        { type: 'appaba:capabilities', capabilities: caps }, '*'
+      )
+    } catch {}
+  }
+
+  // postMessage bridge: mini-app → AppAba → Capacitor plugin → mini-app
   useEffect(() => {
     async function handleMessage(event: MessageEvent) {
       const { id, plugin, method, args } = event.data ?? {}
       if (!id || !plugin || !method) return
-      if (!ALLOWED_PLUGINS.has(plugin)) {
+
+      const pluginImpl = PLUGIN_REGISTRY[plugin]?.[method]
+      if (!pluginImpl) {
         iframeRef.current?.contentWindow?.postMessage(
-          { id, error: `Plugin "${plugin}" is not allowed` }, '*'
+          { id, error: `Plugin "${plugin}.${method}" is not available` }, '*'
         )
         return
       }
       try {
-        const result = await (Capacitor.Plugins as Record<string, any>)[plugin][method](...(args ?? []))
+        const result = await pluginImpl(...(args ?? []))
         iframeRef.current?.contentWindow?.postMessage({ id, result }, '*')
       } catch (err: any) {
         iframeRef.current?.contentWindow?.postMessage({ id, error: err.message }, '*')
@@ -55,7 +149,6 @@ export function AppViewerScreen({ appId, appName, onBack }: Props) {
 
   return (
     <div className="fixed inset-0 bg-white flex flex-col z-50">
-      {/* Thin header bar */}
       <div className="flex items-center gap-2 px-4 py-2 bg-gray-900 flex-shrink-0">
         <button onClick={onBack} className="text-gray-300 hover:text-white transition-colors p-1">
           <ArrowLeft className="w-5 h-5" />
@@ -64,7 +157,6 @@ export function AppViewerScreen({ appId, appName, onBack }: Props) {
         <span className="text-xs text-gray-500 bg-gray-800 px-2 py-0.5 rounded">AppAba</span>
       </div>
 
-      {/* App content */}
       {error ? (
         <div className="flex-1 flex flex-col items-center justify-center gap-3 p-8">
           <AlertCircle className="w-10 h-10 text-red-400" />
@@ -82,6 +174,7 @@ export function AppViewerScreen({ appId, appName, onBack }: Props) {
           className="flex-1 w-full border-none"
           sandbox="allow-scripts allow-same-origin allow-forms"
           title={appName}
+          onLoad={handleIframeLoad}
         />
       )}
     </div>

@@ -35,12 +35,8 @@ export async function downloadAppFiles(
     const fileName = storagePath.split('/').pop() ?? 'file'
     onProgress?.(i + 1, total, fileName)
 
-    // Use signed URL for private bucket, public URL for public apps
-    const { data } = await supabase.storage
-      .from('app-files')
-      .createSignedUrl(storagePath, 120) // 2 min expiry — enough for download
-
-    if (!data?.signedUrl) continue
+    // Bucket is public — use public URL (no expiry issues)
+    const { data } = supabase.storage.from('app-files').getPublicUrl(storagePath)
 
     const relativePath = storagePath.replace(app.storage_path!, '')
     const localPath = `apps/${app.id}/${relativePath}`
@@ -54,11 +50,15 @@ export async function downloadAppFiles(
         .catch(() => {}) // ignore "already exists"
     }
 
-    // Stream directly to disk — no in-memory buffering
-    await Filesystem.downloadFile({
+    const response = await fetch(data.publicUrl)
+    if (!response.ok) continue
+    const blob = await response.blob()
+    const base64 = await blobToBase64(blob)
+
+    await Filesystem.writeFile({
       path: localPath,
       directory: BASE_DIR,
-      url: data.signedUrl,
+      data: base64,
     })
   }
 
@@ -99,10 +99,15 @@ export async function downloadPublicAppFiles(
         .catch(() => {})
     }
 
-    await Filesystem.downloadFile({
+    const response = await fetch(data.publicUrl)
+    if (!response.ok) continue
+    const blob = await response.blob()
+    const base64 = await blobToBase64(blob)
+
+    await Filesystem.writeFile({
       path: localPath,
       directory: BASE_DIR,
-      url: data.publicUrl,
+      data: base64,
     })
   }
 
@@ -115,6 +120,15 @@ export async function downloadPublicAppFiles(
   const indexPaths = JSON.parse(localStorage.getItem('appaba_index_paths') ?? '{}')
   indexPaths[app.id] = `apps/${app.id}/${indexRelative}`
   localStorage.setItem('appaba_index_paths', JSON.stringify(indexPaths))
+}
+
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve((reader.result as string).split(',')[1])
+    reader.onerror = reject
+    reader.readAsDataURL(blob)
+  })
 }
 
 /** Get a bridge-safe URI for the app's index.html */
