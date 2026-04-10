@@ -1,5 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { ArrowLeft, Send, Zap, RotateCcw, Copy } from 'lucide-react'
+import { Capacitor } from '@capacitor/core'
+import { CapacitorHttp } from '@capacitor/core'
 
 const APP_URL = import.meta.env.VITE_APP_URL ?? 'https://apphaba-web.vercel.app'
 
@@ -102,58 +104,70 @@ export function VibeCodingScreen({ onBack, onOpenSettings }: Props) {
     }
 
     try {
-      const res = await fetch(`${APP_URL}/api/vibe`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompt,
-          apiKey,
-          provider: activeProvider,
-          history,
-          currentCode: isHeal ? currentHtml : undefined,
-        }),
-      })
-
-      if (!res.ok) {
-        const err = await res.text()
-        throw new Error(err || `HTTP ${res.status}`)
+      const payload = {
+        prompt,
+        apiKey,
+        provider: activeProvider,
+        history,
+        currentCode: isHeal ? currentHtml : undefined,
       }
 
-      // Stream response
-      const reader = res.body!.getReader()
-      const decoder = new TextDecoder()
       let html = ''
-      let buffer = ''
 
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
+      if (Capacitor.isNativePlatform()) {
+        // ── Native: use CapacitorHttp to bypass CORS ──────────────────────────
+        const res = await CapacitorHttp.post({
+          url: `${APP_URL}/api/vibe`,
+          headers: { 'Content-Type': 'application/json' },
+          data: { ...payload, stream: false },
+        })
+        if (res.status >= 400) throw new Error(res.data ?? `HTTP ${res.status}`)
+        html = res.data?.html ?? res.data ?? ''
+        injectIntoIframe(html)
+      } else {
+        // ── Web: streaming SSE ────────────────────────────────────────────────
+        const res = await fetch(`${APP_URL}/api/vibe`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        })
 
-        buffer += decoder.decode(value, { stream: true })
+        if (!res.ok) {
+          const err = await res.text()
+          throw new Error(err || `HTTP ${res.status}`)
+        }
 
-        // Parse SSE chunks
-        const lines = buffer.split('\n')
-        buffer = lines.pop() ?? ''
+        const reader = res.body!.getReader()
+        const decoder = new TextDecoder()
+        let buffer = ''
 
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const data = line.slice(6)
-            if (data === '[DONE]') continue
-            try {
-              const parsed = JSON.parse(data)
-              const delta =
-                parsed.delta?.text ??                                   // Anthropic
-                parsed.choices?.[0]?.delta?.content ??                  // OpenAI
-                parsed.candidates?.[0]?.content?.parts?.[0]?.text ??   // Gemini
-                ''
-              if (delta) {
-                html += delta
-                // Live preview update every ~300ms via debounce
-                if (html.includes('</html>') || html.length > 2000) {
-                  injectIntoIframe(html)
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+
+          buffer += decoder.decode(value, { stream: true })
+          const lines = buffer.split('\n')
+          buffer = lines.pop() ?? ''
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const data = line.slice(6)
+              if (data === '[DONE]') continue
+              try {
+                const parsed = JSON.parse(data)
+                const delta =
+                  parsed.delta?.text ??
+                  parsed.choices?.[0]?.delta?.content ??
+                  parsed.candidates?.[0]?.content?.parts?.[0]?.text ??
+                  ''
+                if (delta) {
+                  html += delta
+                  if (html.includes('</html>') || html.length > 2000) {
+                    injectIntoIframe(html)
+                  }
                 }
-              }
-            } catch {}
+              } catch {}
+            }
           }
         }
       }

@@ -161,7 +161,7 @@ export default async function handler(req) {
     return corsResponse('Invalid JSON', { status: 400 })
   }
 
-  const { prompt, apiKey, provider = 'anthropic', history = [], currentCode } = body
+  const { prompt, apiKey, provider = 'anthropic', history = [], currentCode, stream = true } = body
 
   if (!prompt) return corsResponse('Missing prompt', { status: 400 })
   if (!apiKey) return corsResponse('Missing API key', { status: 401 })
@@ -185,15 +185,15 @@ export default async function handler(req) {
   // ── Route to correct provider ──────────────────────────────────────────────
 
   if (provider === 'openai') {
-    return callOpenAI(apiKey, messages)
+    return callOpenAI(apiKey, messages, stream)
   } else if (provider === 'gemini') {
-    return callGemini(apiKey, messages)
+    return callGemini(apiKey, messages, stream)
   } else {
-    return callAnthropic(apiKey, messages)
+    return callAnthropic(apiKey, messages, stream)
   }
 }
 
-async function callAnthropic(apiKey, messages) {
+async function callAnthropic(apiKey, messages, stream = true) {
   let res
   try {
     res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -206,7 +206,7 @@ async function callAnthropic(apiKey, messages) {
       body: JSON.stringify({
         model: 'claude-sonnet-4-6',
         max_tokens: 8000,
-        stream: true,
+        stream,
         system: SYSTEM_PROMPT,
         messages,
       }),
@@ -220,12 +220,20 @@ async function callAnthropic(apiKey, messages) {
     return corsResponse('Anthropic error: ' + errText, { status: res.status })
   }
 
+  if (!stream) {
+    const json = await res.json()
+    const text = json.content?.[0]?.text ?? ''
+    return corsResponse(JSON.stringify({ html: text }), {
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }
+
   return corsResponse(res.body, {
     headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' },
   })
 }
 
-async function callOpenAI(apiKey, messages) {
+async function callOpenAI(apiKey, messages, stream = true) {
   let res
   try {
     res = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -237,7 +245,7 @@ async function callOpenAI(apiKey, messages) {
       body: JSON.stringify({
         model: 'gpt-4o',
         max_tokens: 8000,
-        stream: true,
+        stream,
         messages: [
           { role: 'system', content: SYSTEM_PROMPT },
           ...messages,
@@ -253,32 +261,40 @@ async function callOpenAI(apiKey, messages) {
     return corsResponse('OpenAI error: ' + errText, { status: res.status })
   }
 
+  if (!stream) {
+    const json = await res.json()
+    const text = json.choices?.[0]?.message?.content ?? ''
+    return corsResponse(JSON.stringify({ html: text }), {
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }
+
   return corsResponse(res.body, {
     headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' },
   })
 }
 
-async function callGemini(apiKey, messages) {
-  // Convert messages to Gemini format
+async function callGemini(apiKey, messages, stream = true) {
   const contents = messages.map(m => ({
     role: m.role === 'assistant' ? 'model' : 'user',
     parts: [{ text: m.content }],
   }))
 
+  const endpoint = stream
+    ? `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:streamGenerateContent?key=${apiKey}&alt=sse`
+    : `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${apiKey}`
+
   let res
   try {
-    res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:streamGenerateContent?key=${apiKey}&alt=sse`,
-      {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
-          contents,
-          generationConfig: { maxOutputTokens: 8000 },
-        }),
-      }
-    )
+    res = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
+        contents,
+        generationConfig: { maxOutputTokens: 8000 },
+      }),
+    })
   } catch (err) {
     return corsResponse('Failed to reach Gemini API: ' + err.message, { status: 502 })
   }
@@ -286,6 +302,14 @@ async function callGemini(apiKey, messages) {
   if (!res.ok) {
     const errText = await res.text()
     return corsResponse('Gemini error: ' + errText, { status: res.status })
+  }
+
+  if (!stream) {
+    const json = await res.json()
+    const text = json.candidates?.[0]?.content?.parts?.[0]?.text ?? ''
+    return corsResponse(JSON.stringify({ html: text }), {
+      headers: { 'Content-Type': 'application/json' },
+    })
   }
 
   return corsResponse(res.body, {
