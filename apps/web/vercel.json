@@ -2,6 +2,6 @@
   "rewrites": [
     { "source": "/api/app/:slug/:path*", "destination": "/api/app/[slug]/[...path]" },
     { "source": "/api/app/:slug", "destination": "/api/app/[slug]/[...path]" },
-    { "source": "/(.*)", "destination": "/index.html" }
+    { "source": "/((?!api/).*)", "destination": "/index.html" }
   ]
 }
