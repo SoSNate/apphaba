@@ -1,5 +1,18 @@
 export const config = { runtime: 'edge' }
 
+const CORS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
+}
+
+function corsResponse(body, init = {}) {
+  return new Response(body, {
+    ...init,
+    headers: { ...CORS, ...(init.headers ?? {}) },
+  })
+}
+
 const SYSTEM_PROMPT = `You are AppAba's AI app generator. You create native-feeling mobile apps that run inside the AppAba Capacitor host on Android.
 
 ## OUTPUT FORMAT
@@ -138,26 +151,20 @@ try {
 
 export default async function handler(req) {
   if (req.method === 'OPTIONS') {
-    return new Response(null, {
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type',
-      },
-    })
+    return corsResponse(null)
   }
 
   let body
   try {
     body = await req.json()
   } catch {
-    return new Response('Invalid JSON', { status: 400 })
+    return corsResponse('Invalid JSON', { status: 400 })
   }
 
   const { prompt, apiKey, provider = 'anthropic', history = [], currentCode } = body
 
-  if (!prompt) return new Response('Missing prompt', { status: 400 })
-  if (!apiKey) return new Response('Missing API key', { status: 401 })
+  if (!prompt) return corsResponse('Missing prompt', { status: 400 })
+  if (!apiKey) return corsResponse('Missing API key', { status: 401 })
 
   const messages = []
 
@@ -205,20 +212,16 @@ async function callAnthropic(apiKey, messages) {
       }),
     })
   } catch (err) {
-    return new Response('Failed to reach Anthropic API: ' + err.message, { status: 502 })
+    return corsResponse('Failed to reach Anthropic API: ' + err.message, { status: 502 })
   }
 
   if (!res.ok) {
     const errText = await res.text()
-    return new Response('Anthropic error: ' + errText, { status: res.status })
+    return corsResponse('Anthropic error: ' + errText, { status: res.status })
   }
 
-  return new Response(res.body, {
-    headers: {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      'Access-Control-Allow-Origin': '*',
-    },
+  return corsResponse(res.body, {
+    headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' },
   })
 }
 
@@ -242,21 +245,16 @@ async function callOpenAI(apiKey, messages) {
       }),
     })
   } catch (err) {
-    return new Response('Failed to reach OpenAI API: ' + err.message, { status: 502 })
+    return corsResponse('Failed to reach OpenAI API: ' + err.message, { status: 502 })
   }
 
   if (!res.ok) {
     const errText = await res.text()
-    return new Response('OpenAI error: ' + errText, { status: res.status })
+    return corsResponse('OpenAI error: ' + errText, { status: res.status })
   }
 
-  // OpenAI streams SSE — pass through directly (same format as Anthropic)
-  return new Response(res.body, {
-    headers: {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      'Access-Control-Allow-Origin': '*',
-    },
+  return corsResponse(res.body, {
+    headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' },
   })
 }
 
@@ -282,19 +280,15 @@ async function callGemini(apiKey, messages) {
       }
     )
   } catch (err) {
-    return new Response('Failed to reach Gemini API: ' + err.message, { status: 502 })
+    return corsResponse('Failed to reach Gemini API: ' + err.message, { status: 502 })
   }
 
   if (!res.ok) {
     const errText = await res.text()
-    return new Response('Gemini error: ' + errText, { status: res.status })
+    return corsResponse('Gemini error: ' + errText, { status: res.status })
   }
 
-  return new Response(res.body, {
-    headers: {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      'Access-Control-Allow-Origin': '*',
-    },
+  return corsResponse(res.body, {
+    headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' },
   })
 }
