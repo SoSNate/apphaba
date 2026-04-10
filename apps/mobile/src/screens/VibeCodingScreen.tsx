@@ -24,7 +24,9 @@ export function VibeCodingScreen({ onBack, onOpenSettings }: Props) {
   const chatEndRef = useRef<HTMLDivElement>(null)
   const currentBlobUrl = useRef<string | null>(null)
 
-  const apiKey = localStorage.getItem('appaba_api_key')
+  const activeProvider = localStorage.getItem('appaba_active_provider') ?? 'anthropic'
+  const apiKey = localStorage.getItem(`appaba_api_key_${activeProvider}`)
+    ?? localStorage.getItem('appaba_api_key') // fallback to legacy key
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -104,8 +106,9 @@ export function VibeCodingScreen({ onBack, onOpenSettings }: Props) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          prompt: isHeal ? prompt : prompt,
+          prompt,
           apiKey,
+          provider: activeProvider,
           history,
           currentCode: isHeal ? currentHtml : undefined,
         }),
@@ -138,7 +141,11 @@ export function VibeCodingScreen({ onBack, onOpenSettings }: Props) {
             if (data === '[DONE]') continue
             try {
               const parsed = JSON.parse(data)
-              const delta = parsed.delta?.text ?? parsed.choices?.[0]?.delta?.content ?? ''
+              const delta =
+                parsed.delta?.text ??                                   // Anthropic
+                parsed.choices?.[0]?.delta?.content ??                  // OpenAI
+                parsed.candidates?.[0]?.content?.parts?.[0]?.text ??   // Gemini
+                ''
               if (delta) {
                 html += delta
                 // Live preview update every ~300ms via debounce
@@ -174,7 +181,7 @@ export function VibeCodingScreen({ onBack, onOpenSettings }: Props) {
         }])
       }
     }
-  }, [apiKey, messages, currentHtml, onOpenSettings])
+  }, [apiKey, activeProvider, messages, currentHtml, onOpenSettings])
 
   function handleSend() {
     const prompt = input.trim()

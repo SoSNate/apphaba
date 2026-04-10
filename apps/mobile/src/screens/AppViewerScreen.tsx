@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { Capacitor } from '@capacitor/core'
 import { Geolocation } from '@capacitor/geolocation'
-import { Camera } from '@capacitor/camera'
+import { Camera, CameraResultType, CameraSource } from '@capacitor/camera'
 import { Haptics, ImpactStyle } from '@capacitor/haptics'
 import { Share } from '@capacitor/share'
 import { Clipboard } from '@capacitor/clipboard'
@@ -21,7 +21,15 @@ const PLUGIN_REGISTRY: Record<string, Record<string, (...args: any[]) => Promise
     requestPermissions: () => Geolocation.requestPermissions(),
   },
   Camera: {
-    getPhoto: (opts: any) => Camera.getPhoto(opts),
+    getPhoto: (opts: any) => Camera.getPhoto({
+      ...opts,
+      resultType: opts?.resultType === 'uri' ? CameraResultType.Uri
+        : opts?.resultType === 'dataUrl' ? CameraResultType.DataUrl
+        : CameraResultType.Base64,
+      source: opts?.source === 'PHOTOS' ? CameraSource.Photos
+        : opts?.source === 'PROMPT' ? CameraSource.Prompt
+        : CameraSource.Camera,
+    }),
     checkPermissions: () => Camera.checkPermissions(),
     requestPermissions: () => Camera.requestPermissions(),
   },
@@ -63,6 +71,17 @@ const PLUGIN_REGISTRY: Record<string, Record<string, (...args: any[]) => Promise
     remove: (opts: any) => Preferences.remove(opts),
     clear: () => Preferences.clear(),
     keys: () => Preferences.keys(),
+  },
+  Shortcut: {
+    create: (opts: any) => (Capacitor.Plugins as any)['Shortcut']['create'](opts),
+  },
+  Widget: {
+    update: (widgetId: string, layout: any) =>
+      (Capacitor.Plugins as any)['Widget']['update']({ widgetId, layout: JSON.stringify(layout) }),
+    remove: (widgetId: string) =>
+      (Capacitor.Plugins as any)['Widget']['remove']({ widgetId }),
+    getCount: () =>
+      (Capacitor.Plugins as any)['Widget']['getCount'](),
   },
 }
 

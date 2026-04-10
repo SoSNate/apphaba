@@ -1,28 +1,79 @@
 import { useState } from 'react'
-import { ArrowLeft, Key, ExternalLink, Check, Eye, EyeOff } from 'lucide-react'
+import { ArrowLeft, Key, ExternalLink, Check, Eye, EyeOff, ChevronDown } from 'lucide-react'
+
+type Provider = 'anthropic' | 'openai' | 'gemini'
+
+const PROVIDERS: { id: Provider; label: string; placeholder: string; docsUrl: string; docsLabel: string; model: string }[] = [
+  {
+    id: 'anthropic',
+    label: 'Anthropic (Claude)',
+    placeholder: 'sk-ant-api03-...',
+    docsUrl: 'https://console.anthropic.com/settings/keys',
+    docsLabel: 'console.anthropic.com',
+    model: 'claude-sonnet-4-6',
+  },
+  {
+    id: 'openai',
+    label: 'OpenAI (GPT-4o)',
+    placeholder: 'sk-proj-...',
+    docsUrl: 'https://platform.openai.com/api-keys',
+    docsLabel: 'platform.openai.com',
+    model: 'gpt-4o',
+  },
+  {
+    id: 'gemini',
+    label: 'Google (Gemini)',
+    placeholder: 'AIza...',
+    docsUrl: 'https://aistudio.google.com/app/apikey',
+    docsLabel: 'aistudio.google.com',
+    model: 'gemini-1.5-pro',
+  },
+]
+
+function storageKey(provider: Provider) {
+  return `appaba_api_key_${provider}`
+}
 
 interface Props {
   onBack: () => void
 }
 
 export function SettingsScreen({ onBack }: Props) {
-  const [apiKey, setApiKey] = useState(() => localStorage.getItem('appaba_api_key') ?? '')
-  const [saved, setSaved] = useState(!!localStorage.getItem('appaba_api_key'))
+  const [activeProvider, setActiveProvider] = useState<Provider>(
+    () => (localStorage.getItem('appaba_active_provider') as Provider) ?? 'anthropic'
+  )
+  const [showPicker, setShowPicker] = useState(false)
+
+  const provider = PROVIDERS.find(p => p.id === activeProvider)!
+
+  const [apiKey, setApiKey] = useState(() => localStorage.getItem(storageKey(activeProvider)) ?? '')
+  const [saved, setSaved] = useState(!!localStorage.getItem(storageKey(activeProvider)))
   const [visible, setVisible] = useState(false)
+
+  function switchProvider(p: Provider) {
+    setActiveProvider(p)
+    setShowPicker(false)
+    const key = localStorage.getItem(storageKey(p)) ?? ''
+    setApiKey(key)
+    setSaved(!!key)
+    setVisible(false)
+    localStorage.setItem('appaba_active_provider', p)
+  }
 
   function save() {
     if (!apiKey.trim()) return
-    localStorage.setItem('appaba_api_key', apiKey.trim())
+    localStorage.setItem(storageKey(activeProvider), apiKey.trim())
+    localStorage.setItem('appaba_active_provider', activeProvider)
     setSaved(true)
   }
 
   function clear() {
-    localStorage.removeItem('appaba_api_key')
+    localStorage.removeItem(storageKey(activeProvider))
     setApiKey('')
     setSaved(false)
   }
 
-  const masked = apiKey ? apiKey.slice(0, 8) + '••••••••••••••••' + apiKey.slice(-4) : ''
+  const masked = apiKey ? apiKey.slice(0, 6) + '••••••••••••' + apiKey.slice(-4) : ''
 
   return (
     <div className="min-h-screen bg-gray-950 flex flex-col">
@@ -35,14 +86,46 @@ export function SettingsScreen({ onBack }: Props) {
       </div>
 
       <div className="flex-1 px-4 py-6 space-y-5">
+
+        {/* Provider Picker */}
+        <div className="bg-gray-900 rounded-2xl p-5 border border-gray-800">
+          <p className="text-xs text-gray-500 font-semibold uppercase tracking-wide mb-3">AI Provider</p>
+          <div className="relative">
+            <button
+              onClick={() => setShowPicker(v => !v)}
+              className="w-full flex items-center justify-between bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white text-sm"
+            >
+              <span>{provider.label}</span>
+              <ChevronDown className="w-4 h-4 text-gray-400" />
+            </button>
+            {showPicker && (
+              <div className="absolute z-10 top-full mt-1 left-0 right-0 bg-gray-800 border border-gray-700 rounded-xl overflow-hidden shadow-xl">
+                {PROVIDERS.map(p => (
+                  <button
+                    key={p.id}
+                    onClick={() => switchProvider(p.id)}
+                    className={`w-full text-left px-4 py-3 text-sm border-b border-gray-700 last:border-0 transition-colors ${
+                      p.id === activeProvider
+                        ? 'text-indigo-400 bg-indigo-900/30'
+                        : 'text-gray-300 hover:bg-gray-700'
+                    }`}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
         {/* API Key Card */}
         <div className="bg-gray-900 rounded-2xl p-5 border border-gray-800">
           <div className="flex items-center gap-2 mb-1">
             <Key className="w-4 h-4 text-indigo-400" />
-            <span className="font-semibold text-white text-sm">Anthropic API Key</span>
+            <span className="font-semibold text-white text-sm">{provider.label} API Key</span>
           </div>
           <p className="text-xs text-gray-500 mb-4">
-            Required for Vibe Coding. Your key is stored locally on this device only.
+            Required for Vibe Coding. Stored locally on this device only.
           </p>
 
           {saved ? (
@@ -74,7 +157,7 @@ export function SettingsScreen({ onBack }: Props) {
                 type="password"
                 value={apiKey}
                 onChange={e => setApiKey(e.target.value)}
-                placeholder="sk-ant-api03-..."
+                placeholder={provider.placeholder}
                 className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white text-sm font-mono placeholder:text-gray-600 focus:outline-none focus:border-indigo-500"
               />
               <button
@@ -88,32 +171,40 @@ export function SettingsScreen({ onBack }: Props) {
           )}
 
           <a
-            href="https://console.anthropic.com/settings/keys"
+            href={provider.docsUrl}
             className="flex items-center gap-1 mt-3 text-xs text-indigo-400"
           >
             <ExternalLink className="w-3 h-3" />
-            Get your API key at console.anthropic.com
+            Get your key at {provider.docsLabel}
           </a>
         </div>
 
         {/* Info Card */}
         <div className="bg-gray-900 rounded-2xl p-5 border border-gray-800">
-          <p className="text-xs text-gray-500 font-semibold uppercase tracking-wide mb-3">About</p>
+          <p className="text-xs text-gray-500 font-semibold uppercase tracking-wide mb-3">Status</p>
           <div className="space-y-2">
             <div className="flex justify-between">
               <span className="text-gray-400 text-sm">AppAba Version</span>
               <span className="text-gray-300 text-sm">0.1.0</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-gray-400 text-sm">Model</span>
-              <span className="text-gray-300 text-sm">claude-sonnet-4-6</span>
+              <span className="text-gray-400 text-sm">Active Provider</span>
+              <span className="text-gray-300 text-sm">{provider.label}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-gray-400 text-sm">API Key</span>
-              <span className={`text-sm font-medium ${saved ? 'text-green-400' : 'text-red-400'}`}>
-                {saved ? 'Configured' : 'Not set'}
-              </span>
+              <span className="text-gray-400 text-sm">Model</span>
+              <span className="text-gray-300 text-sm">{provider.model}</span>
             </div>
+            {PROVIDERS.map(p => (
+              <div key={p.id} className="flex justify-between">
+                <span className="text-gray-400 text-sm">{p.label}</span>
+                <span className={`text-sm font-medium ${
+                  localStorage.getItem(storageKey(p.id)) ? 'text-green-400' : 'text-gray-600'
+                }`}>
+                  {localStorage.getItem(storageKey(p.id)) ? 'Configured' : 'Not set'}
+                </span>
+              </div>
+            ))}
           </div>
         </div>
       </div>

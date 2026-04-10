@@ -154,15 +154,15 @@ export default async function handler(req) {
     return new Response('Invalid JSON', { status: 400 })
   }
 
-  const { prompt, apiKey, history = [], currentCode } = body
+  const { prompt, apiKey, provider = 'anthropic', history = [], currentCode } = body
 
   if (!prompt) return new Response('Missing prompt', { status: 400 })
   if (!apiKey) return new Response('Missing API key', { status: 401 })
 
   const messages = []
 
-  // Include chat history
-  for (const msg of history.slice(-6)) { // last 6 messages for context
+  // Include chat history (last 6 for context)
+  for (const msg of history.slice(-6)) {
     if (msg.role && msg.content) {
       messages.push({ role: msg.role, content: msg.content })
     }
@@ -170,17 +170,26 @@ export default async function handler(req) {
 
   // If there's existing code (iteration or heal), include it
   if (currentCode) {
-    messages.push({
-      role: 'assistant',
-      content: currentCode,
-    })
+    messages.push({ role: 'assistant', content: currentCode })
   }
 
   messages.push({ role: 'user', content: prompt })
 
-  let anthropicRes
+  // ── Route to correct provider ──────────────────────────────────────────────
+
+  if (provider === 'openai') {
+    return callOpenAI(apiKey, messages)
+  } else if (provider === 'gemini') {
+    return callGemini(apiKey, messages)
+  } else {
+    return callAnthropic(apiKey, messages)
+  }
+}
+
+async function callAnthropic(apiKey, messages) {
+  let res
   try {
-    anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
+    res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
         'x-api-key': apiKey,
@@ -199,13 +208,89 @@ export default async function handler(req) {
     return new Response('Failed to reach Anthropic API: ' + err.message, { status: 502 })
   }
 
-  if (!anthropicRes.ok) {
-    const errText = await anthropicRes.text()
-    return new Response('Anthropic error: ' + errText, { status: anthropicRes.status })
+  if (!res.ok) {
+    const errText = await res.text()
+    return new Response('Anthropic error: ' + errText, { status: res.status })
   }
 
-  // Stream the response directly back
-  return new Response(anthropicRes.body, {
+  return new Response(res.body, {
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Access-Control-Allow-Origin': '*',
+    },
+  })
+}
+
+async function callOpenAI(apiKey, messages) {
+  let res
+  try {
+    res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + apiKey,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o',
+        max_tokens: 8000,
+        stream: true,
+        messages: [
+          { role: 'system', content: SYSTEM_PROMPT },
+          ...messages,
+        ],
+      }),
+    })
+  } catch (err) {
+    return new Response('Failed to reach OpenAI API: ' + err.message, { status: 502 })
+  }
+
+  if (!res.ok) {
+    const errText = await res.text()
+    return new Response('OpenAI error: ' + errText, { status: res.status })
+  }
+
+  // OpenAI streams SSE — pass through directly (same format as Anthropic)
+  return new Response(res.body, {
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Access-Control-Allow-Origin': '*',
+    },
+  })
+}
+
+async function callGemini(apiKey, messages) {
+  // Convert messages to Gemini format
+  const contents = messages.map(m => ({
+    role: m.role === 'assistant' ? 'model' : 'user',
+    parts: [{ text: m.content }],
+  }))
+
+  let res
+  try {
+    res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:streamGenerateContent?key=${apiKey}&alt=sse`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
+          contents,
+          generationConfig: { maxOutputTokens: 8000 },
+        }),
+      }
+    )
+  } catch (err) {
+    return new Response('Failed to reach Gemini API: ' + err.message, { status: 502 })
+  }
+
+  if (!res.ok) {
+    const errText = await res.text()
+    return new Response('Gemini error: ' + errText, { status: res.status })
+  }
+
+  return new Response(res.body, {
     headers: {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',

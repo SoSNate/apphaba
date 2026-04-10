@@ -123,6 +123,33 @@
       clear:  ()           => call('Preferences', 'clear'),
       keys:   ()           => call('Preferences', 'keys').then(r => r.keys),
     },
+
+    /**
+     * Create a pinned home screen shortcut for a mini-app.
+     * opts: { appId, appName, iconBase64? }
+     * Requires Android 8.0+
+     */
+    Shortcut: {
+      create: (opts) => call('Shortcut', 'create', opts),
+    },
+
+    /**
+     * Update a dynamic home screen widget.
+     * widgetId: string — unique ID for this widget slot
+     * layout: {
+     *   background?: string,           // hex color, e.g. '#1e293b'
+     *   rows: Array<
+     *     | { type: 'text', value: string, size?: number, bold?: boolean, color?: string }
+     *     | { type: 'image', base64: string, height?: number }
+     *     | { type: 'button', label: string, appId?: string }
+     *   >
+     * }
+     */
+    Widget: {
+      update:   (widgetId, layout) => call('Widget', 'update', widgetId, layout),
+      remove:   (widgetId)         => call('Widget', 'remove', widgetId),
+      getCount: ()                 => call('Widget', 'getCount'),
+    },
   }
 
   global.AppAba = AppAba
