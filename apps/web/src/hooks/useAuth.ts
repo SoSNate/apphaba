@@ -22,11 +22,13 @@ export function useAuth() {
     return () => listener.subscription.unsubscribe()
   }, [])
 
-  async function signInWithMagicLink(email: string) {
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: { emailRedirectTo: window.location.origin },
-    })
+  async function sendOtp(email: string) {
+    const { error } = await supabase.auth.signInWithOtp({ email })
+    if (error) throw error
+  }
+
+  async function verifyOtp(email: string, token: string) {
+    const { error } = await supabase.auth.verifyOtp({ email, token, type: 'email' })
     if (error) throw error
   }
 
@@ -34,5 +36,5 @@ export function useAuth() {
     await supabase.auth.signOut()
   }
 
-  return { session, user, loading, signInWithMagicLink, signOut }
+  return { session, user, loading, sendOtp, verifyOtp, signOut }
 }
