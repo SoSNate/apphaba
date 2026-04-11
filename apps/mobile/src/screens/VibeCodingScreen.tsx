@@ -369,17 +369,24 @@ export function VibeCodingScreen({ onBack, onOpenSettings, onPublished }: Props)
 
       let res: Response
       try {
+        const controller = new AbortController()
+        const timeout = setTimeout(() => controller.abort(), 90_000) // 90s max
         res = await fetch(`${APP_URL}/api/vibe`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
+          signal: controller.signal,
         })
+        clearTimeout(timeout)
       } catch (fetchErr: any) {
+        if ((fetchErr as any)?.name === 'AbortError') throw new Error('Request timed out after 90s. Try a simpler prompt or switch to a faster model.')
         // CORS or network failure on native — fall back to CapacitorHttp (non-streaming)
         const fallback = await CapacitorHttp.post({
           url: `${APP_URL}/api/vibe`,
           headers: { 'Content-Type': 'application/json' },
           data: { ...payload, stream: false },
+          connectTimeout: 10000,
+          readTimeout: 70000,
         })
         if (fallback.status >= 400) throw new Error(
           typeof fallback.data === 'string' ? fallback.data : JSON.stringify(fallback.data)
