@@ -34,7 +34,16 @@ const PLUGIN_REGISTRY: Record<string, Record<string, (...args: any[]) => Promise
     requestPermissions: () => Camera.requestPermissions(),
   },
   Haptics: {
-    impact: (opts?: any) => Haptics.impact(opts ?? { style: ImpactStyle.Medium }),
+    impact: (opts?: any) => {
+      if (typeof opts === 'string') {
+        const map: Record<string, ImpactStyle> = {
+          LIGHT: ImpactStyle.Light, MEDIUM: ImpactStyle.Medium, HEAVY: ImpactStyle.Heavy,
+          light: ImpactStyle.Light, medium: ImpactStyle.Medium, heavy: ImpactStyle.Heavy,
+        }
+        return Haptics.impact({ style: map[opts] ?? ImpactStyle.Medium })
+      }
+      return Haptics.impact(opts ?? { style: ImpactStyle.Medium })
+    },
     vibrate: (opts?: any) => Haptics.vibrate(opts),
     selectionStart: () => Haptics.selectionStart(),
     selectionChanged: () => Haptics.selectionChanged(),
