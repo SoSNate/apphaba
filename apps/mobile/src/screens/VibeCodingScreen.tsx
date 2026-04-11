@@ -1050,7 +1050,7 @@ ${trimmed}
               ref={iframeRef}
               className="w-full h-full border-none"
               style={{ opacity: currentHtml ? 1 : 0 }}
-              sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+              sandbox="allow-scripts allow-forms allow-popups allow-modals"
               title="Vibe Preview"
               onLoad={handleIframeLoad}
             />
