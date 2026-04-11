@@ -153,6 +153,9 @@ function postProcessHtml(raw) {
     s = m ? m[1].trim() : ''
   }
   if (!s) return ''
+  // Inject favicon to suppress 404
+  if (!s.includes('rel="icon"') && s.includes('</head>'))
+    s = s.replace('</head>', '<link rel="icon" href="data:,">\n</head>')
   // Inject Tailwind CDN if missing
   if (!s.includes('cdn.tailwindcss.com') && s.includes('</head>'))
     s = s.replace('</head>', '<script src="https://cdn.tailwindcss.com"><\/script>\n</head>')
