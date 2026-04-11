@@ -169,6 +169,94 @@ function postProcessHtml(raw) {
   return s
 }
 
+// ── Blueprint Prompt ───────────────────────────────────────────────────────────
+const BLUEPRINT_PROMPT = `You are AppAba's Lead Architect. When a user describes an app they want to build, do NOT write any code. Instead, return a structured Blueprint in this EXACT format:
+
+🗺️ Blueprint for: [derive a short project name from the user's description]
+
+Files I'll create:
+  • index.html — entry point, loads CSS and JS
+  • style.css — all visual styles (kept separate so AI can restyle without touching logic)
+  • main.js — all application logic (kept separate so AI can refactor without touching markup)
+  [add utils.js or api-logic.js here ONLY if the project clearly needs them, with a one-line reason]
+
+Choose your aesthetic:
+  A) Nothing Classic — pure black (#000000), white monospace text, maximum negative space, ultra-minimal
+  B) Cyber-Industrial — dark background (#0a0a1a), neon cyan (#00ffff) or amber (#ffb800) accents, glow effects, glassmorphism
+  C) Tactical Retro — dark navy (#0d1117), phosphor green (#39ff14) or yellow-green (#aaff00), high-contrast military terminal
+
+Clarifying questions:
+  1. Does this app need to save data between sessions?
+  2. Is this for personal use or will you share it with others?
+  3. Any specific branding — colors, emoji, name?
+
+Reply with A, B, or C plus your answers to the questions above, and I'll build it.
+
+IMPORTANT: Return ONLY this blueprint. No code, no HTML, no CSS, no JavaScript. Plain text only.`
+
+// ── Project Studio Prompt ──────────────────────────────────────────────────────
+const PROJECT_STUDIO_PROMPT = `You are AppAba's Project Studio architect. Generate a complete, multi-file mobile app.
+
+## OUTPUT FORMAT — NON-NEGOTIABLE
+Output files using EXACTLY this delimiter format — one delimiter per file, on its own line:
+
+=== FILE: index.html === ← why: entry point that loads all other files
+[file content here]
+
+=== FILE: style.css === ← why: [one sentence: why CSS is separate]
+[file content here]
+
+=== FILE: main.js === ← why: [one sentence: why JS is separate]
+[file content here]
+
+Rules for delimiters:
+- ALWAYS include "← why: [reason]" on the same line as the delimiter
+- ALWAYS output at minimum: index.html, style.css, main.js
+- You MAY add utils.js, api-logic.js, data.js — always with a ← why: reason
+- Output files in this order: index.html first, then CSS, then JS files
+
+## index.html REQUIREMENTS
+- MUST include: <link rel="stylesheet" href="style.css"/>
+- MUST include: <script src="appaba-sdk.js"></script> (already on disk)
+- MUST include: <script src="main.js"></script> at end of body
+- If you create utils.js or other JS files, add them BEFORE main.js
+- NO inline <style> tags — all CSS goes in style.css
+- NO inline <script> blocks with logic — all JS goes in main.js
+- DO include: <script src="https://cdn.tailwindcss.com"></script>
+
+## APPABA SDK (available via appaba-sdk.js, use in main.js)
+\`\`\`js
+await AppAba.Haptics.impact('MEDIUM')
+await AppAba.Toast.show({ text: 'Saved!', duration: 'short', position: 'bottom' })
+await AppAba.Preferences.set('myapp_data', JSON.stringify(data))
+const raw = await AppAba.Preferences.get('myapp_data')
+const pos = await AppAba.Geolocation.getCurrentPosition({ enableHighAccuracy: true })
+const photo = await AppAba.Camera.getPhoto({ quality: 85, resultType: 'base64', source: 'CAMERA' })
+await AppAba.Share.share({ title: 'Title', text: 'Text', url: 'https://...' })
+await AppAba.Widget.push('status', 'Active')
+\`\`\`
+
+## ABSOLUTELY FORBIDDEN IN main.js
+- import / export statements
+- localStorage / sessionStorage → use AppAba.Preferences
+- navigator.geolocation → use AppAba.Geolocation
+- alert() / confirm() / prompt() → use custom modals or AppAba.Toast
+- React, Vue, Svelte, Alpine or any framework imports
+
+## DESIGN SYSTEM
+Use the theme from the blueprintTheme field:
+- nothing: background #000000, text #ffffff, monospace font, no effects
+- cyber: background #0a0a1a, neon cyan #00ffff or amber #ffb800 accents, glow
+- retro: background #0d1117, phosphor green #39ff14, monospace, high contrast
+
+## QUALITY STANDARDS
+- Minimum 200 lines of meaningful code across all files
+- Multi-screen app with navigation
+- CRUD operations with AppAba.Preferences for persistence
+- Empty states, loading states, error handling
+- Haptic feedback on every button tap
+- No placeholders or TODO comments — implement everything`
+
 export default async function handler(req) {
   if (req.method === 'OPTIONS') {
     return corsResponse(null)
@@ -181,10 +269,25 @@ export default async function handler(req) {
     return corsResponse('Invalid JSON', { status: 400 })
   }
 
-  const { prompt, apiKey, provider = 'anthropic', model, history = [], currentCode, stream = true, raw = false } = body
+  const {
+    prompt, apiKey, provider = 'anthropic', model,
+    history = [], currentCode, stream = true, raw = false,
+    mode = 'vibe', projectFiles, blueprintTheme, blueprintAnswers,
+  } = body
 
   if (!prompt) return corsResponse('Missing prompt', { status: 400 })
   if (!apiKey) return corsResponse('Missing API key', { status: 401 })
+
+  // ── Blueprint mode: non-streaming, returns plain text blueprint ────────────
+  if (mode === 'blueprint') {
+    const msgs = [{ role: 'user', content: prompt }]
+    if (provider === 'openai') return callOpenAI(apiKey, msgs, false, model, true, BLUEPRINT_PROMPT)
+    if (provider === 'gemini') return callGemini(apiKey, msgs, false, model, true, BLUEPRINT_PROMPT)
+    return callAnthropic(apiKey, msgs, false, model, true, BLUEPRINT_PROMPT)
+  }
+
+  // ── Select system prompt ───────────────────────────────────────────────────
+  const systemPrompt = mode === 'studio' ? PROJECT_STUDIO_PROMPT : SYSTEM_PROMPT
 
   const messages = []
 
@@ -195,25 +298,40 @@ export default async function handler(req) {
     }
   }
 
-  // If there's existing code (iteration or heal), include it
-  if (currentCode) {
+  // For studio mode: inject existing project files as context for merging
+  if (mode === 'studio' && projectFiles && projectFiles.length > 0) {
+    const fileContext = projectFiles
+      .map(f => `=== FILE: ${f.name} ===\n${f.content}`)
+      .join('\n\n')
+    messages.push({ role: 'assistant', content: `Current project files:\n${fileContext}` })
+  }
+
+  // Legacy single-file mode: include currentCode for iteration/healing
+  if (mode === 'vibe' && currentCode) {
     messages.push({ role: 'assistant', content: currentCode })
   }
 
-  messages.push({ role: 'user', content: prompt })
+  // Add theme/answers context for studio mode
+  let userPrompt = prompt
+  if (mode === 'studio') {
+    const themeNote = blueprintTheme ? `\n[Theme: ${blueprintTheme}]` : ''
+    const answersNote = blueprintAnswers ? `\n[User requirements: ${blueprintAnswers}]` : ''
+    userPrompt = prompt + themeNote + answersNote
+  }
+
+  messages.push({ role: 'user', content: userPrompt })
 
   // ── Route to correct provider ──────────────────────────────────────────────
-
   if (provider === 'openai') {
-    return callOpenAI(apiKey, messages, stream, model, raw)
+    return callOpenAI(apiKey, messages, stream, model, raw, systemPrompt)
   } else if (provider === 'gemini') {
-    return callGemini(apiKey, messages, stream, model, raw)
+    return callGemini(apiKey, messages, stream, model, raw, systemPrompt)
   } else {
-    return callAnthropic(apiKey, messages, stream, model, raw)
+    return callAnthropic(apiKey, messages, stream, model, raw, systemPrompt)
   }
 }
 
-async function callAnthropic(apiKey, messages, stream = true, model = 'claude-sonnet-4-6', raw = false) {
+async function callAnthropic(apiKey, messages, stream = true, model = 'claude-sonnet-4-6', raw = false, system = SYSTEM_PROMPT) {
   let res
   try {
     res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -227,7 +345,7 @@ async function callAnthropic(apiKey, messages, stream = true, model = 'claude-so
         model,
         max_tokens: 16000,
         stream,
-        system: SYSTEM_PROMPT,
+        system,
         messages,
       }),
     })
@@ -254,7 +372,7 @@ async function callAnthropic(apiKey, messages, stream = true, model = 'claude-so
   })
 }
 
-async function callOpenAI(apiKey, messages, stream = true, model = 'gpt-4o') {
+async function callOpenAI(apiKey, messages, stream = true, model = 'gpt-4o', raw = false, system = SYSTEM_PROMPT) {
   let res
   try {
     res = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -268,7 +386,7 @@ async function callOpenAI(apiKey, messages, stream = true, model = 'gpt-4o') {
         max_tokens: 16000,
         stream,
         messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
+          { role: 'system', content: system },
           ...messages,
         ],
       }),
@@ -296,7 +414,7 @@ async function callOpenAI(apiKey, messages, stream = true, model = 'gpt-4o') {
   })
 }
 
-async function callGemini(apiKey, messages, stream = true, model = 'gemini-2.5-pro', raw = false) {
+async function callGemini(apiKey, messages, stream = true, model = 'gemini-2.5-pro', raw = false, system = SYSTEM_PROMPT) {
   const contents = messages.map(m => ({
     role: m.role === 'assistant' ? 'model' : 'user',
     parts: [{ text: m.content }],
@@ -312,7 +430,7 @@ async function callGemini(apiKey, messages, stream = true, model = 'gemini-2.5-p
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
+        system_instruction: { parts: [{ text: system }] },
         contents,
         generationConfig: { maxOutputTokens: 16000 },
       }),

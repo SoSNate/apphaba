@@ -5,7 +5,7 @@ import type { App } from '@appaba/shared'
 const BASE_DIR = Directory.Data
 
 // Inline AppAba SDK — written alongside index.html on download so relative <script src> works
-const APPABA_SDK = `(function(){
+export const APPABA_SDK = `(function(){
   var pending = {};
   window.AppAba = new Proxy({}, {
     get: function(_, plugin) {

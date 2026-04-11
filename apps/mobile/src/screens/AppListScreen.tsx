@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react'
-import { Download, Play, RefreshCw, LogOut, Smartphone, Zap, Settings, Trash2, X, CloudOff, LayoutGrid } from 'lucide-react'
+import { Download, Play, RefreshCw, LogOut, Smartphone, Zap, Settings, Trash2, X, CloudOff, LayoutGrid, Code2 } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
 import { useApps } from '../hooks/useApps'
 import { useRealtime } from '../hooks/useRealtime'
@@ -11,12 +11,13 @@ import type { AppWithStatus } from '../hooks/useApps'
 interface Props {
   onOpenApp: (appId: string) => void
   onOpenVibes: () => void
+  onOpenStudio: () => void
   onOpenWidgets: () => void
   onOpenSettings: () => void
   onCreateWidget: (appId: string, appName: string) => void
 }
 
-export function AppListScreen({ onOpenApp, onOpenVibes, onOpenWidgets, onOpenSettings, onCreateWidget }: Props) {
+export function AppListScreen({ onOpenApp, onOpenVibes, onOpenStudio, onOpenWidgets, onOpenSettings, onCreateWidget }: Props) {
   const { user, signOut } = useAuth()
   const { apps, loading, loadApps, markDownloaded, markUpdated, removeApp } = useApps(user)
   const [downloading, setDownloading] = useState<Record<string, string>>({})
@@ -197,6 +198,10 @@ export function AppListScreen({ onOpenApp, onOpenVibes, onOpenWidgets, onOpenSet
         <button onClick={onOpenVibes} className={`flex-1 flex flex-col items-center gap-0.5 py-2 ${textSecondary}`}>
           <Zap className="w-5 h-5" />
           <span className="text-xs font-medium">Vibe</span>
+        </button>
+        <button onClick={onOpenStudio} className={`flex-1 flex flex-col items-center gap-0.5 py-2 ${textSecondary}`}>
+          <Code2 className="w-5 h-5" />
+          <span className="text-xs font-medium">Studio</span>
         </button>
         <button onClick={onOpenWidgets} className={`flex-1 flex flex-col items-center gap-0.5 py-2 ${textSecondary}`}>
           <LayoutGrid className="w-5 h-5" />
