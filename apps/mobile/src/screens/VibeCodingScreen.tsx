@@ -154,6 +154,8 @@ export function VibeCodingScreen({ onBack, onOpenSettings, onPublished }: Props)
   const [shareStatus, setShareStatus] = useState<'idle' | 'sharing'>('idle')
   const [streamProgress, setStreamProgress] = useState(0) // 0-100 estimated
   const [elapsedSec, setElapsedSec] = useState(0)
+  const [liveCode, setLiveCode] = useState('') // streaming code preview
+  const liveCodeRef = useRef<HTMLDivElement>(null)
   const apiKey = localStorage.getItem(`appaba_api_key_${activeProvider}`)
     ?? localStorage.getItem('appaba_api_key') // fallback to legacy key
 
@@ -422,6 +424,12 @@ export function VibeCodingScreen({ onBack, onOpenSettings, onPublished }: Props)
                   html += delta
                   // Estimate progress (typical app = ~8000 chars)
                   setStreamProgress(Math.min(95, Math.round(html.length / 80)))
+                  // Live code preview — last 600 chars
+                  setLiveCode(html.slice(-600))
+                  // Auto-scroll live code box
+                  requestAnimationFrame(() => {
+                    if (liveCodeRef.current) liveCodeRef.current.scrollTop = liveCodeRef.current.scrollHeight
+                  })
                   // Show partial preview as soon as we have meaningful HTML
                   if (html.includes('</body>') || html.includes('</html>') || html.length > 3000) {
                     injectIntoIframe(html)
@@ -449,9 +457,11 @@ export function VibeCodingScreen({ onBack, onOpenSettings, onPublished }: Props)
 
       setStatus('idle')
       setStreamProgress(100)
+      setLiveCode('')
       if (isHeal && html) Toast.show({ text: '✅ Auto-fixed!', duration: 'short', position: 'bottom' })
     } catch (err: any) {
       setStatus('error')
+      setLiveCode('')
       if (!isHeal) {
         setMessages(prev => [...prev, {
           role: 'assistant',
@@ -922,6 +932,25 @@ ${trimmed}
               ))}
               <div ref={chatEndRef} />
             </div>
+
+            {/* Live code stream */}
+            {status === 'generating' && liveCode && (
+              <div className="flex-shrink-0 mx-3 mb-1 rounded-xl overflow-hidden border border-gray-800 bg-gray-950">
+                <div className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-900 border-b border-gray-800">
+                  <div className="w-2 h-2 rounded-full bg-red-500/60" />
+                  <div className="w-2 h-2 rounded-full bg-yellow-500/60" />
+                  <div className="w-2 h-2 rounded-full bg-green-500/60" />
+                  <span className="text-gray-600 text-xs ml-1 font-mono">index.html</span>
+                </div>
+                <div
+                  ref={liveCodeRef}
+                  className="overflow-y-auto px-3 py-2 font-mono text-[10px] leading-relaxed text-green-400/80"
+                  style={{ maxHeight: 140 }}
+                >
+                  <pre className="whitespace-pre-wrap break-all">{liveCode}<span className="inline-block w-1.5 h-3 bg-green-400 ml-0.5 animate-pulse align-middle" /></pre>
+                </div>
+              </div>
+            )}
 
             {/* Progress bar */}
             {status === 'generating' && (
