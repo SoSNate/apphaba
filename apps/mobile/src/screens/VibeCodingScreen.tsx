@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { ArrowLeft, Send, Zap, RotateCcw, Copy, Upload } from 'lucide-react'
+import { ArrowLeft, Send, Zap, RotateCcw, Copy, Upload, FileInput, Link, ClipboardPaste, X, Code2 } from 'lucide-react'
 import { Capacitor } from '@capacitor/core'
 import { CapacitorHttp } from '@capacitor/core'
 import { Geolocation } from '@capacitor/geolocation'
@@ -104,6 +104,11 @@ export function VibeCodingScreen({ onBack, onOpenSettings }: Props) {
   const [publishName, setPublishName] = useState('')
   const [publishStatus, setPublishStatus] = useState<'idle' | 'publishing' | 'done' | 'error'>('idle')
   const [showPublishDialog, setShowPublishDialog] = useState(false)
+  const [showImportDialog, setShowImportDialog] = useState(false)
+  const [importTab, setImportTab] = useState<'paste' | 'url'>('paste')
+  const [importCode, setImportCode] = useState('')
+  const [importUrl, setImportUrl] = useState('')
+  const [importLoading, setImportLoading] = useState(false)
   const [activePanel, setActivePanel] = useState<'chat' | 'preview'>('chat')
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const chatEndRef = useRef<HTMLDivElement>(null)
@@ -396,6 +401,49 @@ export function VibeCodingScreen({ onBack, onOpenSettings }: Props) {
     if (currentHtml) navigator.clipboard?.writeText(currentHtml)
   }
 
+  async function importFromClipboard() {
+    try {
+      const { value } = await Clipboard.read()
+      const html = extractHtml(value) || (value.trim().startsWith('<') ? value.trim() : '')
+      if (!html) {
+        await Toast.show({ text: 'No HTML found in clipboard', duration: 'short', position: 'bottom' })
+        return
+      }
+      loadImportedCode(html)
+    } catch {
+      await Toast.show({ text: 'Could not read clipboard', duration: 'short', position: 'bottom' })
+    }
+  }
+
+  async function importFromUrl() {
+    if (!importUrl.trim()) return
+    setImportLoading(true)
+    try {
+      const res = await CapacitorHttp.get({ url: importUrl.trim() })
+      if (res.status >= 400) throw new Error(`HTTP ${res.status}`)
+      const html = typeof res.data === 'string' ? res.data : JSON.stringify(res.data)
+      loadImportedCode(html)
+    } catch (e: any) {
+      await Toast.show({ text: '❌ ' + e.message, duration: 'long', position: 'bottom' })
+    } finally {
+      setImportLoading(false)
+    }
+  }
+
+  function loadImportedCode(html: string) {
+    setCurrentHtml(html)
+    injectIntoIframe(html)
+    setShowImportDialog(false)
+    setImportCode('')
+    setImportUrl('')
+    setActivePanel('preview')
+    setMessages(prev => [...prev, {
+      role: 'assistant',
+      content: '📥 Code imported! Tap the preview to interact. You can keep chatting to modify it.',
+      isCode: true,
+    }])
+  }
+
   async function publishToAppAba() {
     if (!currentHtml || !publishName.trim()) return
     setPublishStatus('publishing')
@@ -473,6 +521,10 @@ export function VibeCodingScreen({ onBack, onOpenSettings }: Props) {
         </button>
         <Zap className="w-4 h-4 text-indigo-400" />
         <span className="text-white font-semibold flex-1 text-sm">Vibe Coding</span>
+        <button onClick={() => { setImportCode(''); setImportUrl(''); setShowImportDialog(true) }}
+          className="text-gray-400 p-1" title="Import code">
+          <FileInput className="w-4 h-4" />
+        </button>
         {currentHtml && (
           <>
             <button onClick={() => { setPublishName(''); setShowPublishDialog(true) }}
@@ -620,6 +672,102 @@ export function VibeCodingScreen({ onBack, onOpenSettings }: Props) {
 
         </div>
       </div>
+
+      {/* Import Dialog */}
+      {showImportDialog && (
+        <div className="absolute inset-0 bg-black/70 flex flex-col justify-end z-50">
+          <div className="bg-gray-900 border-t border-gray-700 rounded-t-3xl p-5 pb-10"
+            onClick={e => e.stopPropagation()}>
+
+            {/* Header */}
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <FileInput className="w-5 h-5 text-indigo-400" />
+                <span className="text-white font-semibold">Import Code</span>
+              </div>
+              <button onClick={() => setShowImportDialog(false)} className="text-gray-500">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Tabs */}
+            <div className="flex bg-gray-800 rounded-xl p-1 mb-4">
+              <button
+                onClick={() => setImportTab('paste')}
+                className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  importTab === 'paste' ? 'bg-gray-700 text-white' : 'text-gray-500'
+                }`}
+              >
+                <Code2 className="w-3.5 h-3.5" /> Paste Code
+              </button>
+              <button
+                onClick={() => setImportTab('url')}
+                className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  importTab === 'url' ? 'bg-gray-700 text-white' : 'text-gray-500'
+                }`}
+              >
+                <Link className="w-3.5 h-3.5" /> From URL
+              </button>
+            </div>
+
+            {importTab === 'paste' ? (
+              <div className="space-y-3">
+                {/* Clipboard shortcut */}
+                <button
+                  onClick={importFromClipboard}
+                  className="w-full flex items-center gap-3 bg-gray-800 border border-gray-700 rounded-xl px-4 py-3"
+                >
+                  <ClipboardPaste className="w-4 h-4 text-indigo-400" />
+                  <div className="text-left">
+                    <p className="text-white text-sm font-medium">Paste from clipboard</p>
+                    <p className="text-gray-500 text-xs">Instantly import copied HTML</p>
+                  </div>
+                </button>
+
+                {/* Manual paste area */}
+                <textarea
+                  value={importCode}
+                  onChange={e => setImportCode(e.target.value)}
+                  placeholder="Or type / paste HTML code here..."
+                  rows={5}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white text-xs font-mono placeholder:text-gray-600 focus:outline-none focus:border-indigo-500 resize-none"
+                />
+                <button
+                  onClick={() => {
+                    const html = extractHtml(importCode) || (importCode.trim().startsWith('<') ? importCode.trim() : '')
+                    if (html) loadImportedCode(html)
+                    else Toast.show({ text: 'No valid HTML found', duration: 'short', position: 'bottom' })
+                  }}
+                  disabled={!importCode.trim()}
+                  className="w-full bg-indigo-600 disabled:opacity-40 text-white font-semibold py-3 rounded-xl text-sm"
+                >
+                  Load Code
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <input
+                  value={importUrl}
+                  onChange={e => setImportUrl(e.target.value)}
+                  placeholder="https://example.com/app.html"
+                  className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white text-sm placeholder:text-gray-600 focus:outline-none focus:border-indigo-500"
+                />
+                <p className="text-gray-600 text-xs px-1">Fetches the HTML page at the URL and loads it as a mini-app.</p>
+                <button
+                  onClick={importFromUrl}
+                  disabled={!importUrl.trim() || importLoading}
+                  className="w-full bg-indigo-600 disabled:opacity-40 text-white font-semibold py-3 rounded-xl text-sm"
+                >
+                  {importLoading
+                    ? <span className="flex items-center justify-center gap-2"><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Fetching...</span>
+                    : 'Fetch & Load'
+                  }
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Publish Dialog */}
       {showPublishDialog && (
