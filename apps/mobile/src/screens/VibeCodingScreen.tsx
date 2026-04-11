@@ -476,11 +476,13 @@ export function VibeCodingScreen({ onBack, onOpenSettings, onPublished }: Props)
               if (data === '[DONE]') continue
               try {
                 const parsed = JSON.parse(data)
+                // Gemini thinking models: skip thought:true parts, find actual content
+                const geminiParts = parsed.candidates?.[0]?.content?.parts ?? []
+                const geminiText = (geminiParts.find((p: any) => !p.thought && p.text) ?? geminiParts[geminiParts.length - 1])?.text ?? ''
                 const delta =
                   parsed.delta?.text ??
                   parsed.choices?.[0]?.delta?.content ??
-                  parsed.candidates?.[0]?.content?.parts?.[0]?.text ??
-                  ''
+                  geminiText
                 if (delta) {
                   html += delta
                   // Estimate progress (typical app ~12000 chars, complex ~20000)

@@ -324,7 +324,10 @@ async function callGemini(apiKey, messages, stream = true, model = 'gemini-2.5-p
 
   if (!stream) {
     const json = await res.json()
-    const text = json.candidates?.[0]?.content?.parts?.[0]?.text ?? ''
+    // Gemini thinking models return parts array — skip thought:true, find actual content
+    const parts = json.candidates?.[0]?.content?.parts ?? []
+    const textPart = parts.find(p => !p.thought && p.text) ?? parts[parts.length - 1]
+    const text = textPart?.text ?? ''
     const html = raw ? text : postProcessHtml(text)
     return corsResponse(JSON.stringify({ html }), {
       headers: { 'Content-Type': 'application/json' },
