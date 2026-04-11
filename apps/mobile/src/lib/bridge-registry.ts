@@ -85,11 +85,27 @@ export const PLUGIN_REGISTRY: Record<string, Record<string, (...args: any[]) => 
   },
   Widget: {
     update: (widgetId: string, layout: any) =>
-      (Capacitor.Plugins as any)['Widget']['update']({ widgetId, layout: JSON.stringify(layout) }),
+      (Capacitor.Plugins as any)['Widget']['update']({ widgetId, layout }),
     remove: (widgetId: string) =>
       (Capacitor.Plugins as any)['Widget']['remove']({ widgetId }),
     getCount: () =>
       (Capacitor.Plugins as any)['Widget']['getCount'](),
+    // Push live data from mini-app to its linked widget
+    push: (key: string, value: string, appId: string) => {
+      const raw = localStorage.getItem('appaba_widgets')
+      if (!raw) return Promise.resolve()
+      const widgets: any[] = JSON.parse(raw)
+      const linked = widgets.filter(w => w.appId === appId)
+      if (!linked.length) return Promise.resolve()
+      const updates = linked.map(w => {
+        const config = { ...w.config }
+        config.rows = config.rows.map((row: any) =>
+          row.pushKey === key ? { ...row, value } : row
+        )
+        return (Capacitor.Plugins as any)['Widget']['update']({ widgetId: w.id, layout: config })
+      })
+      return Promise.all(updates)
+    },
   },
 }
 

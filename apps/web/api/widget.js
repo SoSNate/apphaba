@@ -13,6 +13,12 @@ function corsResponse(body, init = {}) {
   })
 }
 
+const THEME_HINTS = {
+  nothing: 'THEME: Nothing aesthetic. Pure black background (#000000). White monospace text only. Ultra minimal — no effects, no gradients, maximum negative space.',
+  cyber:   'THEME: Cyber-Industrial. Background #0a0a1a. Use neon cyan (#00ffff) or amber (#ffb800) for the main value. Other rows in dark slate (#475569). Glow/high-tech feel.',
+  retro:   'THEME: Tactical Retro. Background #0d1117 (dark navy). Text in bright yellow-green (#aaff00) or phosphor green (#39ff14). High contrast military/terminal aesthetic.',
+}
+
 const WIDGET_SYSTEM_PROMPT = `You are a widget designer for AppAba. Given an app name, return a JSON widget layout that summarizes the app on an Android home screen widget.
 
 Return ONLY a valid JSON object — no markdown, no code fences, no explanation.
@@ -22,15 +28,11 @@ Output schema:
 
 Rules:
 - 2–4 rows only
-- background: very dark color — use #000000, #0f172a, or #1e293b
-- Row 1: app name or main label, bold true, size 14, color #ffffff
+- Row 1: app name or main label, bold true, size 14
 - Row 2–4: short key data points, size 11–13, bold false
-- Colors: #ffffff primary, #94a3b8 secondary, #22c55e positive, #ef4444 negative/alert
 - Values must be very short — widget is ~160×80px on screen
-- Nothing aesthetic: minimal, clean, no emojis
-
-Example output for a "Crypto Tracker" app:
-{"background":"#000000","rows":[{"type":"text","value":"Crypto Tracker","size":14,"bold":true,"color":"#ffffff"},{"type":"text","value":"BTC · $64,200","size":13,"bold":false,"color":"#ffffff"},{"type":"text","value":"+2.4% today","size":11,"bold":false,"color":"#22c55e"}]}`
+- No emojis
+- Follow the THEME instructions exactly`
 
 function extractJson(text) {
   // Strip markdown fences
@@ -55,12 +57,13 @@ export default async function handler(req) {
     return corsResponse('Invalid JSON', { status: 400 })
   }
 
-  const { appName, styleHint = '', provider = 'anthropic', apiKey, model } = body
+  const { appName, styleHint = '', theme = 'nothing', provider = 'anthropic', apiKey, model } = body
 
   if (!appName) return corsResponse('Missing appName', { status: 400 })
   if (!apiKey)  return corsResponse('Missing API key', { status: 401 })
 
-  const userMessage = `Create a home screen widget for an app called "${appName}".${styleHint ? ` ${styleHint}` : ''}`
+  const themeHint = THEME_HINTS[theme] ?? THEME_HINTS.nothing
+  const userMessage = `Create a home screen widget for an app called "${appName}". ${themeHint}${styleHint ? ` Additional style: ${styleHint}.` : ''}`
 
   if (provider === 'openai') {
     return callOpenAI(apiKey, userMessage, model)

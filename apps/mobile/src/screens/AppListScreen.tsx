@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react'
-import { Download, Play, RefreshCw, LogOut, Smartphone, Zap, Settings, Trash2, X, CloudOff } from 'lucide-react'
+import { Download, Play, RefreshCw, LogOut, Smartphone, Zap, Settings, Trash2, X, CloudOff, LayoutGrid } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
 import { useApps } from '../hooks/useApps'
 import { useRealtime } from '../hooks/useRealtime'
@@ -11,10 +11,12 @@ import type { AppWithStatus } from '../hooks/useApps'
 interface Props {
   onOpenApp: (appId: string) => void
   onOpenVibes: () => void
+  onOpenWidgets: () => void
   onOpenSettings: () => void
+  onCreateWidget: (appId: string, appName: string) => void
 }
 
-export function AppListScreen({ onOpenApp, onOpenVibes, onOpenSettings }: Props) {
+export function AppListScreen({ onOpenApp, onOpenVibes, onOpenWidgets, onOpenSettings, onCreateWidget }: Props) {
   const { user, signOut } = useAuth()
   const { apps, loading, loadApps, markDownloaded, markUpdated, removeApp } = useApps(user)
   const [downloading, setDownloading] = useState<Record<string, string>>({})
@@ -150,13 +152,22 @@ export function AppListScreen({ onOpenApp, onOpenVibes, onOpenSettings }: Props)
                         <div className="w-5 h-5 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
                       </div>
                     ) : app.isDownloaded && !app.hasUpdate ? (
-                      <button
-                        onTouchStart={cancelLongPress}
-                        onClick={() => onOpenApp(app.id)}
-                        className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center hover:bg-indigo-700 transition-colors flex-shrink-0"
-                      >
-                        <Play className="w-4 h-4 text-white" fill="white" />
-                      </button>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <button
+                          onTouchStart={cancelLongPress}
+                          onClick={() => onCreateWidget(app.id, app.name)}
+                          className="w-9 h-9 bg-gray-800 rounded-xl flex items-center justify-center"
+                        >
+                          <LayoutGrid className="w-4 h-4 text-gray-400" />
+                        </button>
+                        <button
+                          onTouchStart={cancelLongPress}
+                          onClick={() => onOpenApp(app.id)}
+                          className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center hover:bg-indigo-700 transition-colors"
+                        >
+                          <Play className="w-4 h-4 text-white" fill="white" />
+                        </button>
+                      </div>
                     ) : (
                       <button
                         onTouchStart={cancelLongPress}
@@ -186,6 +197,10 @@ export function AppListScreen({ onOpenApp, onOpenVibes, onOpenSettings }: Props)
         <button onClick={onOpenVibes} className={`flex-1 flex flex-col items-center gap-0.5 py-2 ${textSecondary}`}>
           <Zap className="w-5 h-5" />
           <span className="text-xs font-medium">Vibe</span>
+        </button>
+        <button onClick={onOpenWidgets} className={`flex-1 flex flex-col items-center gap-0.5 py-2 ${textSecondary}`}>
+          <LayoutGrid className="w-5 h-5" />
+          <span className="text-xs font-medium">Widgets</span>
         </button>
         <button onClick={onOpenSettings} className={`flex-1 flex flex-col items-center gap-0.5 py-2 ${textSecondary}`}>
           <Settings className="w-5 h-5" />

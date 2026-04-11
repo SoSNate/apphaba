@@ -6,6 +6,8 @@ import { AppListScreen } from './screens/AppListScreen'
 import { AppViewerScreen } from './screens/AppViewerScreen'
 import { VibeCodingScreen } from './screens/VibeCodingScreen'
 import { SettingsScreen } from './screens/SettingsScreen'
+import { WidgetsScreen } from './screens/WidgetsScreen'
+import { WidgetBuilderScreen } from './screens/WidgetBuilderScreen'
 import { onNotificationTap } from './lib/notifications'
 import { supabase } from './lib/supabase'
 import type { App } from '@appaba/shared'
@@ -14,7 +16,9 @@ type Screen =
   | { name: 'list' }
   | { name: 'viewer'; appId: string; appName: string }
   | { name: 'vibes' }
+  | { name: 'widgets' }
   | { name: 'settings' }
+  | { name: 'widget-builder'; appId: string; appName: string }
 
 function Spinner() {
   return (
@@ -83,6 +87,28 @@ export default function AppRoot() {
     return <SettingsScreen onBack={() => setScreen({ name: 'list' })} />
   }
 
+  if (screen.name === 'widgets') {
+    return (
+      <WidgetsScreen
+        onOpenApps={() => setScreen({ name: 'list' })}
+        onOpenVibes={() => setScreen({ name: 'vibes' })}
+        onOpenSettings={() => setScreen({ name: 'settings' })}
+      />
+    )
+  }
+
+  if (screen.name === 'widget-builder') {
+    return (
+      <div className="fixed inset-0 bg-gray-950 z-50">
+        <WidgetBuilderScreen
+          appId={screen.appId}
+          appName={screen.appName}
+          onClose={() => setScreen({ name: 'list' })}
+        />
+      </div>
+    )
+  }
+
   return (
     <AppListScreen
       onOpenApp={async (appId: string) => {
@@ -94,7 +120,9 @@ export default function AppRoot() {
         })
       }}
       onOpenVibes={() => setScreen({ name: 'vibes' })}
+      onOpenWidgets={() => setScreen({ name: 'widgets' })}
       onOpenSettings={() => setScreen({ name: 'settings' })}
+      onCreateWidget={(appId, appName) => setScreen({ name: 'widget-builder', appId, appName })}
     />
   )
 }

@@ -85,6 +85,10 @@ const { connected } = await AppAba.Network.getStatus()
 
 // Device
 const { batteryLevel, isCharging } = await AppAba.Device.getBatteryInfo()
+
+// Widget live data — push value to home screen widget linked to this app:
+await AppAba.Widget.push('status', 'Active')   // key must match widget row pushKey
+await AppAba.Widget.push('battery', '87%')
 \`\`\`
 
 ## DESIGN SYSTEM (follow exactly)
