@@ -35,14 +35,20 @@ const PLUGIN_REGISTRY: Record<string, Record<string, (...args: any[]) => Promise
   },
   Haptics: {
     impact: (opts?: any) => {
+      console.log('[AppAba Bridge] Haptics.impact called with:', JSON.stringify(opts))
+      let style: ImpactStyle
       if (typeof opts === 'string') {
         const map: Record<string, ImpactStyle> = {
           LIGHT: ImpactStyle.Light, MEDIUM: ImpactStyle.Medium, HEAVY: ImpactStyle.Heavy,
           light: ImpactStyle.Light, medium: ImpactStyle.Medium, heavy: ImpactStyle.Heavy,
         }
-        return Haptics.impact({ style: map[opts] ?? ImpactStyle.Medium })
+        style = map[opts] ?? ImpactStyle.Medium
+      } else {
+        style = opts?.style ?? ImpactStyle.Medium
       }
-      return Haptics.impact(opts ?? { style: ImpactStyle.Medium })
+      console.log('[AppAba Bridge] Haptics.impact → style:', style)
+      return Haptics.impact({ style }).then(r => { console.log('[AppAba Bridge] Haptics.impact OK') ; return r })
+        .catch(e => { console.error('[AppAba Bridge] Haptics.impact FAILED:', e.message) ; throw e })
     },
     vibrate: (opts?: any) => Haptics.vibrate(opts),
     selectionStart: () => Haptics.selectionStart(),
@@ -156,8 +162,11 @@ export function AppViewerScreen({ appId, appName, onBack }: Props) {
       const { id, plugin, method, args } = event.data ?? {}
       if (!id || !plugin || !method) return
 
+      console.log(`[AppAba Bridge] ${plugin}.${method}`, args)
+
       const pluginImpl = PLUGIN_REGISTRY[plugin]?.[method]
       if (!pluginImpl) {
+        console.warn(`[AppAba Bridge] NOT FOUND: ${plugin}.${method}`)
         iframeRef.current?.contentWindow?.postMessage(
           { id, error: `Plugin "${plugin}.${method}" is not available` }, '*'
         )
@@ -167,6 +176,7 @@ export function AppViewerScreen({ appId, appName, onBack }: Props) {
         const result = await pluginImpl(...(args ?? []))
         iframeRef.current?.contentWindow?.postMessage({ id, result }, '*')
       } catch (err: any) {
+        console.error(`[AppAba Bridge] ${plugin}.${method} ERROR:`, err.message)
         iframeRef.current?.contentWindow?.postMessage({ id, error: err.message }, '*')
       }
     }
