@@ -20,24 +20,26 @@ const PROVIDERS: {
     placeholder: 'sk-ant-api03-...',
     docsUrl: 'https://console.anthropic.com/settings/keys',
     docsLabel: 'console.anthropic.com',
-    defaultModel: 'claude-sonnet-4-6',
+    defaultModel: 'claude-opus-4-6',
     models: [
-      { id: 'claude-opus-4-6',   label: 'Claude Opus 4.6 (most capable)' },
-      { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (recommended)' },
-      { id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5 (fastest)' },
+      { id: 'claude-opus-4-6',            label: '⚡ Claude Opus 4.6 — best quality' },
+      { id: 'claude-sonnet-4-6',          label: 'Claude Sonnet 4.6 — fast + smart' },
+      { id: 'claude-haiku-4-5-20251001',  label: 'Claude Haiku 4.5 — fastest' },
     ],
   },
   {
     id: 'openai',
-    label: 'OpenAI (GPT)',
+    label: 'OpenAI',
     placeholder: 'sk-proj-...',
     docsUrl: 'https://platform.openai.com/api-keys',
     docsLabel: 'platform.openai.com',
-    defaultModel: 'gpt-4o',
+    defaultModel: 'o3',
     models: [
-      { id: 'gpt-4o',       label: 'GPT-4o (recommended)' },
-      { id: 'gpt-4o-mini',  label: 'GPT-4o Mini (faster)' },
-      { id: 'o3',           label: 'o3 (reasoning)' },
+      { id: 'o3',          label: '⚡ o3 — best reasoning' },
+      { id: 'o4-mini',     label: 'o4-mini — fast reasoning' },
+      { id: 'gpt-4.1',     label: 'GPT-4.1 — best coding' },
+      { id: 'gpt-4o',      label: 'GPT-4o — balanced' },
+      { id: 'gpt-4o-mini', label: 'GPT-4o Mini — fastest' },
     ],
   },
   {
@@ -48,9 +50,10 @@ const PROVIDERS: {
     docsLabel: 'aistudio.google.com',
     defaultModel: 'gemini-2.5-pro',
     models: [
-      { id: 'gemini-2.5-pro',   label: 'Gemini 2.5 Pro (recommended)' },
-      { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (faster)' },
-      { id: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash' },
+      { id: 'gemini-2.5-pro',            label: '⚡ Gemini 2.5 Pro — best quality' },
+      { id: 'gemini-2.5-flash',          label: 'Gemini 2.5 Flash — fast' },
+      { id: 'gemini-2.5-flash-thinking', label: 'Gemini 2.5 Flash Thinking' },
+      { id: 'gemini-2.0-flash',          label: 'Gemini 2.0 Flash' },
     ],
   },
 ]
@@ -66,6 +69,7 @@ export function SettingsScreen({ onBack }: Props) {
   )
   const [showProviderPicker, setShowProviderPicker] = useState(false)
   const [showModelPicker, setShowModelPicker] = useState(false)
+  const [customModelInput, setCustomModelInput] = useState('')
 
   const provider = PROVIDERS.find(p => p.id === activeProvider)!
 
@@ -109,7 +113,8 @@ export function SettingsScreen({ onBack }: Props) {
   }
 
   const masked = apiKey ? apiKey.slice(0, 6) + '••••••••••••' + apiKey.slice(-4) : ''
-  const currentModelLabel = provider.models.find(m => m.id === activeModel)?.label ?? activeModel
+  const isCustomModel = !provider.models.find(m => m.id === activeModel)
+  const currentModelLabel = provider.models.find(m => m.id === activeModel)?.label ?? `Custom: ${activeModel}`
 
   return (
     <div className="min-h-screen bg-gray-950 flex flex-col">
@@ -169,13 +174,40 @@ export function SettingsScreen({ onBack }: Props) {
                   <button
                     key={m.id}
                     onClick={() => selectModel(m.id)}
-                    className={`w-full text-left px-4 py-3 text-sm border-b border-gray-700 last:border-0 transition-colors ${
+                    className={`w-full text-left px-4 py-3 text-sm border-b border-gray-700 transition-colors ${
                       m.id === activeModel ? 'text-indigo-400 bg-indigo-900/30' : 'text-gray-300 hover:bg-gray-700'
                     }`}
                   >
                     {m.label}
                   </button>
                 ))}
+                {/* Custom model entry */}
+                <div className="px-3 py-2 border-t border-gray-700 flex gap-2">
+                  <input
+                    value={customModelInput}
+                    onChange={e => setCustomModelInput(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' && customModelInput.trim()) {
+                        selectModel(customModelInput.trim())
+                        setCustomModelInput('')
+                      }
+                    }}
+                    placeholder="Custom model ID..."
+                    className="flex-1 bg-gray-700 border border-gray-600 rounded-lg px-3 py-1.5 text-white text-xs placeholder:text-gray-500 focus:outline-none focus:border-indigo-500"
+                  />
+                  <button
+                    onClick={() => {
+                      if (customModelInput.trim()) {
+                        selectModel(customModelInput.trim())
+                        setCustomModelInput('')
+                      }
+                    }}
+                    disabled={!customModelInput.trim()}
+                    className="bg-indigo-600 disabled:opacity-40 text-white text-xs px-3 py-1.5 rounded-lg font-medium"
+                  >
+                    Use
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -251,9 +283,11 @@ export function SettingsScreen({ onBack }: Props) {
               <span className="text-gray-400 text-sm">Active Provider</span>
               <span className="text-gray-300 text-sm">{provider.label}</span>
             </div>
-            <div className="flex justify-between">
+            <div className="flex justify-between items-center">
               <span className="text-gray-400 text-sm">Active Model</span>
-              <span className="text-gray-300 text-sm font-mono text-xs">{activeModel}</span>
+              <span className={`text-xs font-mono ${isCustomModel ? 'text-yellow-400' : 'text-gray-300'}`}>
+                {activeModel}{isCustomModel ? ' ✎' : ''}
+              </span>
             </div>
             {PROVIDERS.map(p => (
               <div key={p.id} className="flex justify-between">
