@@ -74,6 +74,7 @@ export default function AppRoot() {
       <VibeCodingScreen
         onBack={() => setScreen({ name: 'list' })}
         onOpenSettings={() => setScreen({ name: 'settings' })}
+        onPublished={() => setScreen({ name: 'list' })}
       />
     )
   }

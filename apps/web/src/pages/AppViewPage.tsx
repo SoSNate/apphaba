@@ -1,13 +1,63 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import type { App } from '@appaba/shared'
+
+// Web-side AppAba SDK bridge — forwards postMessages to browser APIs
+async function handleBridgeMessage(
+  event: MessageEvent,
+  iframeRef: React.RefObject<HTMLIFrameElement>
+) {
+  const { id, plugin, method, args } = event.data ?? {}
+  if (!id || !plugin || !method) return
+
+  let result: any
+  let error: string | undefined
+
+  try {
+    if (plugin === 'Toast') {
+      // Web fallback: console info (no native toast on web)
+      console.info('[AppAba Toast]', args?.[0]?.text ?? '')
+      result = {}
+    } else if (plugin === 'Clipboard' && method === 'write') {
+      await navigator.clipboard?.writeText(args?.[0]?.string ?? '')
+      result = {}
+    } else if (plugin === 'Share') {
+      if (navigator.share) await navigator.share(args?.[0])
+      result = {}
+    } else if (plugin === 'Network' && method === 'getStatus') {
+      result = { connected: navigator.onLine, connectionType: 'wifi' }
+    } else if (plugin === 'Geolocation' && method === 'getCurrentPosition') {
+      result = await new Promise((res, rej) =>
+        navigator.geolocation.getCurrentPosition(
+          p => res({ coords: { latitude: p.coords.latitude, longitude: p.coords.longitude, accuracy: p.coords.accuracy } }),
+          rej, args?.[0]
+        )
+      )
+    } else {
+      error = `Plugin "${plugin}.${method}" is not available on web`
+    }
+  } catch (e: any) {
+    error = e.message
+  }
+
+  iframeRef.current?.contentWindow?.postMessage(
+    error ? { id, error } : { id, result }, '*'
+  )
+}
 
 export default function AppViewPage() {
   const { slug } = useParams<{ slug: string }>()
   const [iframeSrc, setIframeSrc] = useState('')
   const [appName, setAppName] = useState('')
   const [error, setError] = useState('')
+  const iframeRef = useRef<HTMLIFrameElement>(null)
+
+  useEffect(() => {
+    const handler = (e: MessageEvent) => handleBridgeMessage(e, iframeRef)
+    window.addEventListener('message', handler)
+    return () => window.removeEventListener('message', handler)
+  }, [])
 
   useEffect(() => {
     if (!slug) return
@@ -57,10 +107,11 @@ export default function AppViewPage() {
         <span className="text-xs text-gray-500 bg-gray-800 px-2 py-0.5 rounded">AppAba</span>
       </div>
       <iframe
+        ref={iframeRef}
         src={iframeSrc}
         className="fixed inset-0 w-full h-full border-none"
         style={{ top: '36px' }}
-        sandbox="allow-scripts allow-same-origin allow-forms allow-modals allow-popups"
+        sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
         title={appName}
       />
     </>

@@ -116,19 +116,49 @@ try {
 }
 \`\`\`
 
-## ABSOLUTELY FORBIDDEN
-- localStorage / sessionStorage → AppAba.Preferences
-- navigator.geolocation → AppAba.Geolocation
-- getUserMedia → AppAba.Camera
-- alert() / confirm() / prompt() → custom modals or AppAba.Toast
-- ANY framework imports (React, Preact, Vue, Svelte) → use vanilla JS only
-- import { h } from 'https://esm.sh/preact/compat' → NEVER use this
-- npm imports of any kind → use only Tailwind CDN + AppAba SDK, nothing else
-- <script type="module"> with external imports → use regular scripts only
+## ABSOLUTELY FORBIDDEN — WILL BREAK THE APP
+- localStorage / sessionStorage → use AppAba.Preferences instead
+- navigator.geolocation → use AppAba.Geolocation instead
+- getUserMedia → use AppAba.Camera instead
+- alert() / confirm() / prompt() → use custom modals or AppAba.Toast instead
+- ANY <script type="module"> tags → NEVER use ES modules, use regular <script> tags only
+- ANY import/export statements → NEVER write import or export, not even one line
+- ANY CDN framework imports: React, Preact, Vue, Svelte, Solid, Alpine — DO NOT import from esm.sh or any CDN
+- npm packages of any kind → use only Tailwind CDN + AppAba SDK
 - Placeholders, TODOs, "coming soon" → implement everything fully
 - Single-screen apps for complex requests → use multi-screen architecture
 - Hardcoded data that should be user-generated → use AppAba.Preferences
-- Comments like "add more items here" → generate real content`
+- Comments like "add more items here" → generate real content
+
+## WHY NO MODULES
+The app runs in a sandboxed iframe. ES module imports from esm.sh, unpkg, or any CDN will fail with CORS or sandbox errors. All code must be in regular <script> tags using only the APIs already available: window, document, AppAba SDK, and Tailwind CSS (loaded via CDN script tag).
+`
+
+const MOBILE_BASE_STYLES = `<style id="appaba-base">
+*{-webkit-tap-highlight-color:transparent;user-select:none}
+html,body{margin:0;padding:0;overflow:hidden;width:100%;height:100%;
+  padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)}
+</style>`
+
+function postProcessHtml(raw) {
+  if (!raw || typeof raw !== 'string') return ''
+  let s = raw.trim()
+  // Strip markdown code fences if AI wrapped the output
+  s = s.replace(/^```(?:html)?\s*/i, '').replace(/\s*```\s*$/i, '').trim()
+  // Extract the HTML document if there's surrounding text
+  if (!/<html|<!doctype/i.test(s)) {
+    const m = s.match(/(<!doctype[\s\S]*?<\/html>|<html[\s\S]*?<\/html>)/i)
+    s = m ? m[1].trim() : ''
+  }
+  if (!s) return ''
+  // Inject Tailwind CDN if missing
+  if (!s.includes('cdn.tailwindcss.com') && s.includes('</head>'))
+    s = s.replace('</head>', '<script src="https://cdn.tailwindcss.com"><\/script>\n</head>')
+  // Inject mobile base styles if missing
+  if (!s.includes('appaba-base') && s.includes('</head>'))
+    s = s.replace('</head>', MOBILE_BASE_STYLES + '\n</head>')
+  return s
+}
 
 export default async function handler(req) {
   if (req.method === 'OPTIONS') {
@@ -203,8 +233,8 @@ async function callAnthropic(apiKey, messages, stream = true, model = 'claude-so
 
   if (!stream) {
     const json = await res.json()
-    const text = json.content?.[0]?.text ?? ''
-    return corsResponse(JSON.stringify({ html: text }), {
+    const html = postProcessHtml(json.content?.[0]?.text ?? '')
+    return corsResponse(JSON.stringify({ html }), {
       headers: { 'Content-Type': 'application/json' },
     })
   }
@@ -244,8 +274,8 @@ async function callOpenAI(apiKey, messages, stream = true, model = 'gpt-4o') {
 
   if (!stream) {
     const json = await res.json()
-    const text = json.choices?.[0]?.message?.content ?? ''
-    return corsResponse(JSON.stringify({ html: text }), {
+    const html = postProcessHtml(json.choices?.[0]?.message?.content ?? '')
+    return corsResponse(JSON.stringify({ html }), {
       headers: { 'Content-Type': 'application/json' },
     })
   }
@@ -287,8 +317,8 @@ async function callGemini(apiKey, messages, stream = true, model = 'gemini-2.5-p
 
   if (!stream) {
     const json = await res.json()
-    const text = json.candidates?.[0]?.content?.parts?.[0]?.text ?? ''
-    return corsResponse(JSON.stringify({ html: text }), {
+    const html = postProcessHtml(json.candidates?.[0]?.content?.parts?.[0]?.text ?? '')
+    return corsResponse(JSON.stringify({ html }), {
       headers: { 'Content-Type': 'application/json' },
     })
   }

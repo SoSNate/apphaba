@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { ArrowLeft, Send, Zap, RotateCcw, Copy, Upload, FileInput, Link, ClipboardPaste, X, Code2 } from 'lucide-react'
+import { ArrowLeft, Send, Zap, RotateCcw, Copy, Upload, FileInput, Link, ClipboardPaste, X, Code2, ChevronDown } from 'lucide-react'
 import { Capacitor } from '@capacitor/core'
 import { CapacitorHttp } from '@capacitor/core'
+import { Filesystem, Directory, Encoding } from '@capacitor/filesystem'
 import { Geolocation } from '@capacitor/geolocation'
 import { Camera, CameraResultType, CameraSource } from '@capacitor/camera'
 import { Haptics, ImpactStyle } from '@capacitor/haptics'
@@ -71,6 +72,33 @@ const PLUGIN_REGISTRY: Record<string, Record<string, (...args: any[]) => Promise
 
 const APP_URL = import.meta.env.VITE_APP_URL ?? 'https://apphaba-web.vercel.app'
 
+const HARDWARE_SNIPPETS = [
+  { icon: '📳', label: 'Vibration', text: 'Add haptic feedback when buttons are tapped' },
+  { icon: '📍', label: 'Location',  text: 'Show my real-time GPS location on a map' },
+  { icon: '📷', label: 'Camera',    text: 'Add a camera button that captures a photo' },
+  { icon: '💾', label: 'Save data', text: 'Save user data that persists between sessions' },
+  { icon: '🌐', label: 'Network',   text: 'Check internet connection and show status' },
+  { icon: '🔋', label: 'Battery',   text: 'Display current battery level' },
+] as const
+
+const MODELS_BY_PROVIDER: Record<string, { id: string; label: string }[]> = {
+  anthropic: [
+    { id: 'claude-opus-4-6', label: 'Opus 4.6' },
+    { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6' },
+    { id: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5' },
+  ],
+  openai: [
+    { id: 'o3', label: 'o3' },
+    { id: 'o4-mini', label: 'o4-mini' },
+    { id: 'gpt-4.1', label: 'GPT-4.1' },
+    { id: 'gpt-4o', label: 'GPT-4o' },
+  ],
+  gemini: [
+    { id: 'gemini-2.5-pro', label: '2.5 Pro' },
+    { id: 'gemini-2.5-flash', label: '2.5 Flash' },
+  ],
+}
+
 // Strip markdown code fences and extract raw HTML
 function extractHtml(raw: string): string {
   if (!raw || typeof raw !== 'string') return ''
@@ -93,9 +121,10 @@ interface Message {
 interface Props {
   onBack: () => void
   onOpenSettings: () => void
+  onPublished?: () => void
 }
 
-export function VibeCodingScreen({ onBack, onOpenSettings }: Props) {
+export function VibeCodingScreen({ onBack, onOpenSettings, onPublished }: Props) {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [status, setStatus] = useState<'idle' | 'generating' | 'error'>('idle')
@@ -112,14 +141,19 @@ export function VibeCodingScreen({ onBack, onOpenSettings }: Props) {
   const [activePanel, setActivePanel] = useState<'chat' | 'preview'>('chat')
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const chatEndRef = useRef<HTMLDivElement>(null)
-  const currentBlobUrl = useRef<string | null>(null)
   const touchStartX = useRef<number>(0)
   const touchStartY = useRef<number>(0)
 
-  const activeProvider = localStorage.getItem('appaba_active_provider') ?? 'anthropic'
+  const [activeProvider] = useState(
+    () => localStorage.getItem('appaba_active_provider') ?? 'anthropic'
+  )
+  const [activeModel, setActiveModelState] = useState(
+    () => localStorage.getItem(`appaba_model_${localStorage.getItem('appaba_active_provider') ?? 'anthropic'}`) ?? 'claude-sonnet-4-6'
+  )
+  const [showModelPicker, setShowModelPicker] = useState(false)
+  const [shareStatus, setShareStatus] = useState<'idle' | 'sharing'>('idle')
   const apiKey = localStorage.getItem(`appaba_api_key_${activeProvider}`)
     ?? localStorage.getItem('appaba_api_key') // fallback to legacy key
-  const activeModel = localStorage.getItem(`appaba_model_${activeProvider}`) ?? undefined
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -130,10 +164,13 @@ export function VibeCodingScreen({ onBack, onOpenSettings }: Props) {
     async function handleMessage(event: MessageEvent) {
       const msg = event.data ?? {}
 
-      // Error from iframe — try to self-heal
-      if (msg.type === 'appaba:error' && healAttempts < 2) {
+      // Error/blank from iframe — try to self-heal
+      if ((msg.type === 'appaba:error' || msg.type === 'appaba:blank') && healAttempts < 2) {
         setHealAttempts(h => h + 1)
-        generate(`The code threw this error: "${msg.error}". Fix it silently without changing the app's functionality.`, true)
+        const ctx = msg.type === 'appaba:blank'
+          ? 'The app rendered a completely blank screen. Fix it so content displays correctly.'
+          : `The code threw this error: "${msg.error}". Fix it silently without changing the app's functionality.`
+        generate(ctx, true)
         return
       }
 
@@ -183,7 +220,6 @@ export function VibeCodingScreen({ onBack, onOpenSettings }: Props) {
 
   function injectIntoIframe(html: string) {
     if (!iframeRef.current) return
-    if (currentBlobUrl.current) URL.revokeObjectURL(currentBlobUrl.current)
 
     // Replace external SDK script tag with inline SDK so it works from any origin
     const sdkInline = `<script>
@@ -219,9 +255,10 @@ export function VibeCodingScreen({ onBack, onOpenSettings }: Props) {
     // Fix common AI mistakes before loading
     let patched = html
       .replace(/<script[^>]+appaba-sdk\.js[^>]*><\/script>/gi, '')
-      // Fix broken Preact import: preact/compat doesn't export h, but preact does
-      .replace(/from\s+['"]https:\/\/esm\.sh\/preact\/compat['"]/g, "from 'https://esm.sh/preact'")
-      .replace(/from\s+['"]https:\/\/esm\.sh\/preact@[^'"]+\/compat['"]/g, "from 'https://esm.sh/preact'")
+      // Convert ES module scripts to regular scripts (removes type="module" and all import/export lines)
+      .replace(/<script\s+type\s*=\s*["']module["']/gi, '<script')
+      .replace(/^\s*import\s+.*?from\s+['"][^'"]+['"]\s*;?\s*$/gm, '')
+      .replace(/^\s*export\s+(default\s+)?/gm, '')
     if (patched.includes('</head>')) {
       patched = patched.replace('</head>', sdkInline + '\n</head>')
     } else if (patched.includes('</body>')) {
@@ -230,10 +267,8 @@ export function VibeCodingScreen({ onBack, onOpenSettings }: Props) {
       patched = patched + '\n' + sdkInline
     }
 
-    const blob = new Blob([patched], { type: 'text/html' })
-    const url = URL.createObjectURL(blob)
-    currentBlobUrl.current = url
-    iframeRef.current.src = url
+    // srcdoc works in Capacitor Android WebView; blob: URLs are blocked
+    iframeRef.current.srcdoc = patched
   }
 
   function injectErrorCatcher() {
@@ -246,6 +281,17 @@ export function VibeCodingScreen({ onBack, onOpenSettings }: Props) {
         }
         window.onunhandledrejection = function(e) {
           window.parent.postMessage({ type: 'appaba:error', error: e.reason?.message || 'Unhandled promise rejection' }, '*')
+        }
+        setTimeout(function() {
+          if (document.body && !document.body.innerText.trim() && document.body.children.length === 0)
+            window.parent.postMessage({ type: 'appaba:blank', error: 'App rendered blank output' }, '*')
+        }, 3000)
+        var _fetch = window.fetch
+        window.fetch = function() {
+          return _fetch.apply(this, arguments).catch(function(e) {
+            window.parent.postMessage({ type: 'appaba:error', error: 'Network: ' + e.message }, '*')
+            throw e
+          })
         }
       `)
     } catch {}
@@ -305,7 +351,7 @@ export function VibeCodingScreen({ onBack, onOpenSettings }: Props) {
         if (res.status >= 400) throw new Error(
           typeof res.data === 'string' ? res.data : JSON.stringify(res.data) ?? `HTTP ${res.status}`
         )
-        html = extractHtml(res.data?.html ?? res.data ?? '')
+        html = res.data?.html ?? ''
         if (!html) throw new Error('AI did not return valid HTML. Try rephrasing your prompt.')
         injectIntoIframe(html)
       } else {
@@ -371,6 +417,7 @@ export function VibeCodingScreen({ onBack, onOpenSettings }: Props) {
       }
 
       setStatus('idle')
+      if (isHeal && html) Toast.show({ text: '✅ Auto-fixed!', duration: 'short', position: 'bottom' })
     } catch (err: any) {
       setStatus('error')
       if (!isHeal) {
@@ -394,11 +441,7 @@ export function VibeCodingScreen({ onBack, onOpenSettings }: Props) {
     setCurrentHtml('')
     setHealAttempts(0)
     setStatus('idle')
-    if (iframeRef.current) iframeRef.current.src = 'about:blank'
-    if (currentBlobUrl.current) {
-      URL.revokeObjectURL(currentBlobUrl.current)
-      currentBlobUrl.current = null
-    }
+    if (iframeRef.current) iframeRef.current.srcdoc = ''
   }
 
   function copyCode() {
@@ -421,12 +464,43 @@ export function VibeCodingScreen({ onBack, onOpenSettings }: Props) {
 
   async function importFromUrl() {
     if (!importUrl.trim()) return
+    const url = importUrl.trim()
+
+    // Gemini blocks iframes (X-Frame-Options: DENY) — guide user to copy the code
+    if (/gemini\.google\.com\/share\/|aistudio\.google\.com\//.test(url)) {
+      setImportTab('paste')
+      await Toast.show({ text: 'Gemini blocks direct import — copy the code from Gemini and paste it here', duration: 'long', position: 'bottom' })
+      return
+    }
+
     setImportLoading(true)
     try {
-      const res = await CapacitorHttp.get({ url: importUrl.trim() })
-      if (res.status >= 400) throw new Error(`HTTP ${res.status}`)
-      const html = typeof res.data === 'string' ? res.data : JSON.stringify(res.data)
-      loadImportedCode(html)
+      let url = importUrl.trim()
+
+      // Try direct fetch first (works for public URLs on native)
+      let rawCode = ''
+      try {
+        const res = await CapacitorHttp.get({ url })
+        if (res.status < 400) {
+          rawCode = typeof res.data === 'string' ? res.data : JSON.stringify(res.data)
+        }
+      } catch {
+        // Fall through to proxy
+      }
+
+      // If direct fetch failed or returned non-HTML, use server proxy to bypass CORS
+      if (!rawCode || (!rawCode.includes('<') && !rawCode.includes('import') && !rawCode.includes('function'))) {
+        const proxyRes = await CapacitorHttp.post({
+          url: `${APP_URL}/api/fetch-url`,
+          headers: { 'Content-Type': 'application/json' },
+          data: { url },
+        })
+        if (proxyRes.status >= 400) throw new Error(`Could not fetch URL (${proxyRes.status})`)
+        rawCode = typeof proxyRes.data === 'string' ? proxyRes.data : (proxyRes.data?.content ?? '')
+      }
+
+      if (!rawCode) throw new Error('No content found at URL')
+      loadImportedCode(rawCode)
     } catch (e: any) {
       await Toast.show({ text: '❌ ' + e.message, duration: 'long', position: 'bottom' })
     } finally {
@@ -434,7 +508,77 @@ export function VibeCodingScreen({ onBack, onOpenSettings }: Props) {
     }
   }
 
-  function loadImportedCode(html: string) {
+  // Convert any code (React JSX, plain JS component, raw HTML) into a runnable HTML page
+  function normalizeToHtml(raw: string): string {
+    const trimmed = raw.trim()
+
+    // Already a full HTML page
+    if (/<html|<!doctype/i.test(trimmed)) return trimmed
+
+    // Looks like React/JSX — wrap in a full page with Babel standalone transpiler
+    const isReact = /import\s+React|from\s+['"]react['"]|jsx|tsx|<[A-Z][A-Za-z]+[\s/>]|useState|useEffect/.test(trimmed)
+    const isJSX = /<[A-Za-z][A-Za-z0-9]*[\s\/>]/.test(trimmed) && /return\s*\(/.test(trimmed)
+
+    if (isReact || isJSX) {
+      // Strip import lines (we'll provide React via CDN)
+      const strippedImports = trimmed
+        .replace(/^import\s+.*?from\s+['"][^'"]+['"]\s*;?\s*$/gm, '')
+        .replace(/^export\s+default\s+/m, '')
+        .replace(/^export\s+/gm, '')
+
+      return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>body{margin:0;background:#030712;color:white;font-family:system-ui,sans-serif}</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useRef, useCallback, useMemo, useContext, createContext } = React;
+
+${strippedImports}
+
+// Try to find and render the root component
+const rootEl = document.getElementById('root');
+const root = ReactDOM.createRoot(rootEl);
+const ComponentNames = Object.keys(window).filter(k => /^[A-Z]/.test(k) && typeof window[k] === 'function');
+const MainComponent = typeof App !== 'undefined' ? App
+  : typeof Home !== 'undefined' ? Home
+  : typeof Main !== 'undefined' ? Main
+  : ComponentNames[0] ? window[ComponentNames[0]] : () => React.createElement('div', null, 'No component found');
+root.render(React.createElement(MainComponent));
+</script>
+</body>
+</html>`
+    }
+
+    // Plain HTML snippet — wrap in full page
+    if (trimmed.startsWith('<')) {
+      return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>body{margin:0;background:#030712;color:white;font-family:system-ui,sans-serif}</style>
+</head>
+<body>
+${trimmed}
+</body>
+</html>`
+    }
+
+    return trimmed
+  }
+
+  function loadImportedCode(raw: string) {
+    const html = normalizeToHtml(raw)
     setCurrentHtml(html)
     injectIntoIframe(html)
     setShowImportDialog(false)
@@ -461,27 +605,83 @@ export function VibeCodingScreen({ onBack, onOpenSettings }: Props) {
       const appId = crypto.randomUUID()
       const storagePath = `${user.id}/${appId}/`
 
+      // Build the final HTML with SDK already inlined (same as injectIntoIframe does)
+      const sdkInline = `<script>
+(function(){
+  var pending = {};
+  window.AppAba = new Proxy({}, {
+    get: function(_, plugin) {
+      return new Proxy({}, {
+        get: function(_, method) {
+          return function() {
+            var args = Array.prototype.slice.call(arguments);
+            return new Promise(function(resolve, reject) {
+              var id = Math.random().toString(36).slice(2);
+              pending[id] = { resolve: resolve, reject: reject };
+              window.parent.postMessage({ id: id, plugin: plugin, method: method, args: args }, '*');
+            });
+          };
+        }
+      });
+    }
+  });
+  window.addEventListener('message', function(e) {
+    var d = e.data;
+    if (!d || !d.id || !pending[d.id]) return;
+    var p = pending[d.id];
+    delete pending[d.id];
+    if (d.error) p.reject(new Error(d.error));
+    else p.resolve(d.result);
+  });
+})();
+<\/script>`
+
+      let finalHtml = currentHtml
+        .replace(/<script[^>]+appaba-sdk\.js[^>]*><\/script>/gi, '')
+        .replace(/<script\s+type\s*=\s*["']module["']/gi, '<script')
+        .replace(/^\s*import\s+.*?from\s+['"][^'"]+['"]\s*;?\s*$/gm, '')
+        .replace(/^\s*export\s+(default\s+)?/gm, '')
+      if (finalHtml.includes('</head>')) {
+        finalHtml = finalHtml.replace('</head>', sdkInline + '\n</head>')
+      } else {
+        finalHtml = sdkInline + '\n' + finalHtml
+      }
+
       // 1. Upload HTML to Storage
-      const blob = new Blob([currentHtml], { type: 'text/html' })
+      const blob = new Blob([finalHtml], { type: 'text/html' })
       const { error: uploadErr } = await supabase.storage
         .from('app-files')
         .upload(`${storagePath}index.html`, blob, { upsert: true })
       if (uploadErr) throw uploadErr
 
       // 2. Create app record
+      const version = new Date().toISOString()
       const { error: insertErr } = await supabase.from('apps').insert({
         id: appId,
         name: publishName.trim(),
         slug,
         user_id: user.id,
         storage_path: storagePath,
-        is_public: false,
-        version: new Date().toISOString(),
+        is_public: true,
+        version,
       })
       if (insertErr) throw insertErr
 
+      // 3. Write locally so it can be played immediately without re-downloading
+      if (Capacitor.isNativePlatform()) {
+        await Filesystem.mkdir({ path: `apps/${appId}`, directory: Directory.Data, recursive: true }).catch(() => {})
+        await Filesystem.writeFile({ path: `apps/${appId}/index.html`, directory: Directory.Data, data: finalHtml, encoding: Encoding.UTF8 })
+        const indexPaths = JSON.parse(localStorage.getItem('appaba_index_paths') ?? '{}')
+        indexPaths[appId] = `apps/${appId}/index.html`
+        localStorage.setItem('appaba_index_paths', JSON.stringify(indexPaths))
+        const versions = JSON.parse(localStorage.getItem('appaba_local_versions') ?? '{}')
+        versions[appId] = version
+        localStorage.setItem('appaba_local_versions', JSON.stringify(versions))
+      }
+
       setPublishStatus('done')
       setShowPublishDialog(false)
+      onPublished?.()
       setMessages(prev => [...prev, {
         role: 'assistant',
         content: `✅ "${publishName.trim()}" published to AppAba! Find it in My Apps.`,
@@ -510,6 +710,53 @@ export function VibeCodingScreen({ onBack, onOpenSettings }: Props) {
     if (dx > 0 && activePanel === 'preview') setActivePanel('chat')
   }
 
+  function insertSnippet(text: string) {
+    Haptics.impact({ style: ImpactStyle.Light })
+    setInput(prev => prev ? prev + ' ' + text : text)
+  }
+
+  function switchModel(id: string) {
+    localStorage.setItem(`appaba_model_${activeProvider}`, id)
+    setActiveModelState(id)
+    setShowModelPicker(false)
+    Haptics.impact({ style: ImpactStyle.Light })
+  }
+
+  async function sharePreview() {
+    if (!currentHtml || shareStatus === 'sharing') return
+    setShareStatus('sharing')
+    try {
+      let data: { url?: string; error?: string }
+      if (Capacitor.isNativePlatform()) {
+        const res = await CapacitorHttp.post({
+          url: `${APP_URL}/api/preview`,
+          headers: { 'Content-Type': 'application/json' },
+          data: { html: currentHtml },
+        })
+        data = res.data
+      } else {
+        const res = await fetch(`${APP_URL}/api/preview`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ html: currentHtml }),
+        })
+        data = await res.json()
+      }
+      if (data.error) throw new Error(data.error)
+      if (!data.url) throw new Error('No URL returned')
+      if (Capacitor.isNativePlatform()) {
+        await Share.share({ title: 'App Preview', url: data.url })
+      } else {
+        await navigator.clipboard?.writeText(data.url)
+      }
+      Toast.show({ text: '🔗 Preview URL ready!', duration: 'short', position: 'bottom' })
+    } catch (e: any) {
+      Toast.show({ text: '❌ ' + e.message, duration: 'long', position: 'bottom' })
+    } finally {
+      setShareStatus('idle')
+    }
+  }
+
   // Switch to preview automatically when app is generated
   useEffect(() => {
     if (currentHtml && status === 'idle') setActivePanel('preview')
@@ -524,6 +771,27 @@ export function VibeCodingScreen({ onBack, onOpenSettings }: Props) {
           <ArrowLeft className="w-5 h-5" />
         </button>
         <Zap className="w-4 h-4 text-indigo-400" />
+        <div className="relative">
+          <button onClick={() => setShowModelPicker(v => !v)}
+            className="flex items-center gap-1 bg-gray-800 border border-gray-700 rounded-lg px-2 py-1 text-xs text-gray-300">
+            <span className="max-w-[72px] truncate">
+              {MODELS_BY_PROVIDER[activeProvider]?.find(m => m.id === activeModel)?.label ?? activeModel?.split('-').slice(-2).join(' ') ?? '...'}
+            </span>
+            <ChevronDown className="w-3 h-3 text-gray-500" />
+          </button>
+          {showModelPicker && (
+            <div className="absolute left-0 top-full mt-1 z-50 bg-gray-800 border border-gray-700 rounded-xl overflow-hidden shadow-2xl min-w-[120px]">
+              {(MODELS_BY_PROVIDER[activeProvider] ?? []).map(m => (
+                <button key={m.id} onClick={() => switchModel(m.id)}
+                  className={`w-full text-left px-3 py-2 text-xs border-b border-gray-700 last:border-0 ${
+                    m.id === activeModel ? 'text-indigo-400 bg-indigo-900/30' : 'text-gray-300 hover:bg-gray-700'
+                  }`}>
+                  {m.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
         <span className="text-white font-semibold flex-1 text-sm">Vibe Coding</span>
         <button onClick={() => { setImportCode(''); setImportUrl(''); setShowImportDialog(true) }}
           className="text-gray-400 p-1" title="Import code">
@@ -531,6 +799,12 @@ export function VibeCodingScreen({ onBack, onOpenSettings }: Props) {
         </button>
         {currentHtml && (
           <>
+            <button onClick={sharePreview} disabled={shareStatus === 'sharing'}
+              className="text-gray-400 p-1 disabled:opacity-40">
+              {shareStatus === 'sharing'
+                ? <div className="w-4 h-4 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
+                : <Link className="w-4 h-4" />}
+            </button>
             <button onClick={() => { setPublishName(''); setShowPublishDialog(true) }}
               className="text-indigo-400 p-1">
               <Upload className="w-4 h-4" />
@@ -627,6 +901,18 @@ export function VibeCodingScreen({ onBack, onOpenSettings }: Props) {
               </div>
             )}
 
+            {/* Hardware snippet chips */}
+            <div className="flex-shrink-0 overflow-x-auto px-3 py-2 bg-gray-900 border-t border-gray-800 flex gap-2"
+              style={{ WebkitOverflowScrolling: 'touch' as const, scrollbarWidth: 'none' as const }}>
+              {HARDWARE_SNIPPETS.map(s => (
+                <button key={s.label} onClick={() => insertSnippet(s.text)}
+                  disabled={status === 'generating'}
+                  className="flex-shrink-0 flex items-center gap-1.5 bg-gray-800 border border-gray-700 rounded-full px-3 py-1.5 text-xs text-gray-300 active:bg-gray-700 disabled:opacity-40">
+                  <span>{s.icon}</span><span>{s.label}</span>
+                </button>
+              ))}
+            </div>
+
             {/* Input */}
             <div className="flex items-end gap-2 px-4 py-3 bg-gray-900 border-t border-gray-800 pb-8">
               <textarea
@@ -662,7 +948,7 @@ export function VibeCodingScreen({ onBack, onOpenSettings }: Props) {
               ref={iframeRef}
               className="w-full h-full border-none"
               style={{ opacity: currentHtml ? 1 : 0 }}
-              sandbox="allow-scripts allow-forms allow-popups"
+              sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
               title="Vibe Preview"
               onLoad={handleIframeLoad}
             />
@@ -732,15 +1018,14 @@ export function VibeCodingScreen({ onBack, onOpenSettings }: Props) {
                 <textarea
                   value={importCode}
                   onChange={e => setImportCode(e.target.value)}
-                  placeholder="Or type / paste HTML code here..."
+                  placeholder="Paste HTML, React JSX, or any component code here..."
                   rows={5}
                   className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white text-xs font-mono placeholder:text-gray-600 focus:outline-none focus:border-indigo-500 resize-none"
                 />
                 <button
                   onClick={() => {
-                    const html = extractHtml(importCode) || (importCode.trim().startsWith('<') ? importCode.trim() : '')
-                    if (html) loadImportedCode(html)
-                    else Toast.show({ text: 'No valid HTML found', duration: 'short', position: 'bottom' })
+                    if (!importCode.trim()) return
+                    loadImportedCode(importCode.trim())
                   }}
                   disabled={!importCode.trim()}
                   className="w-full bg-indigo-600 disabled:opacity-40 text-white font-semibold py-3 rounded-xl text-sm"
@@ -753,10 +1038,13 @@ export function VibeCodingScreen({ onBack, onOpenSettings }: Props) {
                 <input
                   value={importUrl}
                   onChange={e => setImportUrl(e.target.value)}
-                  placeholder="https://example.com/app.html"
+                  placeholder="https://... (HTML, GitHub raw, CodePen, JSFiddle...)"
                   className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white text-sm placeholder:text-gray-600 focus:outline-none focus:border-indigo-500"
                 />
-                <p className="text-gray-600 text-xs px-1">Fetches the HTML page at the URL and loads it as a mini-app.</p>
+                <p className="text-gray-600 text-xs px-1">
+                  Supports HTML files, GitHub raw URLs, CodePen exports, and more.{'\n'}
+                  For Gemini/AI Studio — copy the code and use Paste instead.
+                </p>
                 <button
                   onClick={importFromUrl}
                   disabled={!importUrl.trim() || importLoading}
@@ -800,6 +1088,7 @@ export function VibeCodingScreen({ onBack, onOpenSettings }: Props) {
           </div>
         </div>
       )}
+
 
     </div>
   )
