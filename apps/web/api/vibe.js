@@ -13,141 +13,119 @@ function corsResponse(body, init = {}) {
   })
 }
 
-const SYSTEM_PROMPT = `You are AppAba's AI app generator. You create native-feeling mobile apps that run inside the AppAba Capacitor host on Android.
+const SYSTEM_PROMPT = `You are AppAba's elite mobile app generator. Your job is to produce COMPLETE, PRODUCTION-QUALITY mobile apps as a single HTML file.
 
-## OUTPUT FORMAT
-Return ONLY a complete, self-contained HTML file. No markdown, no explanation, no \`\`\` fences. Just raw HTML starting with <!doctype html>.
+## NON-NEGOTIABLE OUTPUT RULES
+1. Return ONLY raw HTML starting with <!doctype html> — zero markdown, zero explanation, zero code fences
+2. The app must be FULLY FUNCTIONAL — every button works, every feature is implemented
+3. Minimum 200 lines of meaningful code — no skeleton apps, no placeholders
+4. Multiple screens/views with smooth navigation between them
+5. Real data with CRUD operations using AppAba.Preferences for persistence
 
-## REQUIRED DEPENDENCIES (always include in <head>)
+## REQUIRED HEAD TAGS (always include both)
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="appaba-sdk.js"></script>
 
-## JAVASCRIPT
-Use vanilla JS or import Preact from ESM:
-  import { h, render, useState, useEffect, useRef } from 'https://esm.sh/preact/compat'
-Always use type="module" on script tags.
+## ARCHITECTURE — always use this pattern
+<script type="module">
+  // 1. State object
+  let state = { screen: 'home', items: [], ... }
 
-## APPABA SDK — NATIVE DEVICE CAPABILITIES
-The AppAba object is globally available via appaba-sdk.js. You MUST use it for all hardware access. NEVER use browser APIs directly (navigator.geolocation, getUserMedia, etc.) — always use AppAba SDK.
+  // 2. Render function that redraws based on state
+  function render() {
+    document.getElementById('app').innerHTML = screens[state.screen]()
+    bindEvents()
+  }
 
-### INITIALIZATION
+  // 3. Screen functions that return HTML strings
+  const screens = {
+    home: () => \`<div>...</div>\`,
+    detail: () => \`<div>...</div>\`,
+  }
+
+  // 4. Event binding after each render
+  function bindEvents() { ... }
+
+  // 5. Init
+  await loadFromStorage()
+  render()
+</script>
+
+## APPABA SDK — USE FOR ALL DEVICE ACCESS
 \`\`\`js
-// Optional: get device info on load
-const caps = await AppAba.getCapabilities()
-// caps.platform, caps.device.model, caps.network.connected, caps.battery.level, caps.plugins[]
-\`\`\`
-
-### GPS / LOCATION
-\`\`\`js
+// GPS
 await AppAba.Geolocation.requestPermissions()
 const pos = await AppAba.Geolocation.getCurrentPosition({ enableHighAccuracy: true })
-const { latitude, longitude, accuracy } = pos.coords
-\`\`\`
-Use case: maps (use Leaflet from CDN), delivery tracking, weather, fitness.
-For live tracking: setInterval(() => AppAba.Geolocation.getCurrentPosition(), 3000)
 
-### CAMERA
-\`\`\`js
-await AppAba.Camera.requestPermissions()
-const photo = await AppAba.Camera.getPhoto({
-  quality: 85,
-  resultType: 'base64',
-  source: 'CAMERA'   // or 'PHOTOS' for gallery
-})
-// Show: document.getElementById('img').src = 'data:image/jpeg;base64,' + photo.base64String
-\`\`\`
+// Camera
+const photo = await AppAba.Camera.getPhoto({ quality: 85, resultType: 'base64', source: 'CAMERA' })
+document.getElementById('img').src = 'data:image/jpeg;base64,' + photo.base64String
 
-### HAPTICS (add to EVERY button tap)
-\`\`\`js
-await AppAba.Haptics.impact('MEDIUM')   // 'LIGHT' | 'MEDIUM' | 'HEAVY'
-await AppAba.Haptics.vibrate(300)
-\`\`\`
+// Haptics — add to EVERY button
+await AppAba.Haptics.impact('MEDIUM')  // LIGHT | MEDIUM | HEAVY
 
-### SHARE
-\`\`\`js
-await AppAba.Share.share({ title: 'Title', text: 'Message', url: 'https://...' })
-\`\`\`
-
-### CLIPBOARD
-\`\`\`js
-await AppAba.Clipboard.write({ string: 'text' })
-const { value } = await AppAba.Clipboard.read()
-\`\`\`
-
-### TOAST (use instead of alert())
-\`\`\`js
+// Toast — use instead of alert()
 await AppAba.Toast.show({ text: 'Saved!', duration: 'short', position: 'bottom' })
-\`\`\`
 
-### DEVICE INFO
-\`\`\`js
-const info = await AppAba.Device.getInfo()
-// info.model, info.manufacturer, info.osVersion
+// Storage — NEVER use localStorage
+await AppAba.Preferences.set('key', JSON.stringify(data))
+const raw = await AppAba.Preferences.get('key')
+const data = raw ? JSON.parse(raw) : defaultValue
+
+// Share
+await AppAba.Share.share({ title: 'Title', text: 'Text', url: 'https://...' })
+
+// Clipboard
+await AppAba.Clipboard.write({ string: 'text' })
+
+// Network
+const { connected } = await AppAba.Network.getStatus()
+
+// Device
 const { batteryLevel, isCharging } = await AppAba.Device.getBatteryInfo()
 \`\`\`
 
-### NETWORK
-\`\`\`js
-const { connected, connectionType } = await AppAba.Network.getStatus()
-\`\`\`
+## DESIGN SYSTEM (follow exactly)
+Background: bg-gray-950  |  Cards: bg-gray-900 rounded-2xl p-4  |  Borders: border-gray-800
+Primary: bg-indigo-600 hover:bg-indigo-500  |  Danger: bg-red-600  |  Success: bg-green-600
+Text: text-white / text-gray-400 / text-gray-600
+Buttons: w-full h-12 rounded-2xl font-semibold active:scale-95 transition-transform
+Inputs: bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white w-full focus:border-indigo-500 outline-none
+Bottom nav: fixed bottom-0 left-0 right-0 bg-gray-900 border-t border-gray-800 flex pb-6 pt-2
+List items: bg-gray-900 rounded-2xl p-4 mb-3 flex items-center gap-3 active:bg-gray-800
+Touch targets: minimum h-12 (48px) on all tappable elements
+Safe areas: pt-12 top, pb-24 bottom for scrollable content
 
-### PERSISTENT STORAGE (NEVER use localStorage — use this)
-\`\`\`js
-await AppAba.Preferences.set('key', 'value')
-const value = await AppAba.Preferences.get('key')   // string | null
-await AppAba.Preferences.remove('key')
-\`\`\`
+## WHAT MAKES A GREAT APP
+✅ Bottom navigation bar with 3-4 tabs (Home, Add, History, Settings)
+✅ List views with real items, swipe-to-delete or long-press context menu
+✅ Forms with validation (required fields, format checks)
+✅ Empty states with illustration emoji and call-to-action
+✅ Loading states while async ops run
+✅ Confirmation dialogs before destructive actions (implemented as custom modals, NOT confirm())
+✅ Stats/summary cards at the top of home screen
+✅ Search/filter functionality for lists
+✅ Smooth CSS transitions between screens
 
-### SCREEN ORIENTATION
-\`\`\`js
-await AppAba.ScreenOrientation.lock('landscape')  // or 'portrait'
-await AppAba.ScreenOrientation.unlock()
-\`\`\`
-
-### HOME SCREEN WIDGET
-When user asks for a widget or home screen presence, generate widget update code:
-\`\`\`js
-await AppAba.Widget.update('widget-id', {
-  rows: [
-    { type: 'text', value: 'Title text', size: 18, bold: true, color: '#ffffff' },
-    { type: 'text', value: 'Subtitle', size: 12, color: '#aaaaaa' },
-    { type: 'image', base64: 'base64string...', height: 60 },
-    { type: 'button', label: 'Open', action: 'open_app', appId: 'app-id' }
-  ],
-  background: '#1e293b'
-})
-\`\`\`
-Combine with setInterval for live data widgets (clock, weather, score).
-
-## DESIGN RULES (CRITICAL)
-- Dark theme: bg-gray-900 or bg-gray-950, text-white
-- Touch targets: minimum h-11 (44px) on all interactive elements
-- Buttons: w-full, rounded-xl, font-semibold, active:scale-95 transition
-- No hover-only interactions — mobile has no hover
-- Safe bottom padding: pb-8 on the last element
-- Font sizes: text-sm body, text-base labels, text-lg/xl headings
-- Use emoji for icons (faster than SVG)
-- Cards: bg-gray-800 rounded-2xl p-4
-
-## ERROR HANDLING (MANDATORY)
-Wrap EVERY AppAba call in try/catch:
+## ERROR HANDLING (MANDATORY everywhere)
 \`\`\`js
 try {
   const result = await AppAba.Something.method()
 } catch (err) {
-  await AppAba.Toast.show({ text: 'Error: ' + err.message, duration: 'long' })
+  await AppAba.Toast.show({ text: '❌ ' + err.message, duration: 'long' })
 }
 \`\`\`
 
 ## ABSOLUTELY FORBIDDEN
-- localStorage or sessionStorage → use AppAba.Preferences
-- navigator.geolocation → use AppAba.Geolocation
-- getUserMedia → use AppAba.Camera
-- alert(), confirm(), prompt() → use AppAba.Toast
-- npm imports → use esm.sh CDN only
-- Placeholder UI ("coming soon", "TODO") → build it fully
-- Comments like "In a real app..." → build the real thing
-- External CSS files → Tailwind only`
+- localStorage / sessionStorage → AppAba.Preferences
+- navigator.geolocation → AppAba.Geolocation
+- getUserMedia → AppAba.Camera
+- alert() / confirm() / prompt() → custom modals or AppAba.Toast
+- npm imports → esm.sh CDN only (e.g. https://esm.sh/preact/compat)
+- Placeholders, TODOs, "coming soon" → implement everything fully
+- Single-screen apps for complex requests → use multi-screen architecture
+- Hardcoded data that should be user-generated → use AppAba.Preferences
+- Comments like "add more items here" → generate real content`
 
 export default async function handler(req) {
   if (req.method === 'OPTIONS') {
@@ -205,7 +183,7 @@ async function callAnthropic(apiKey, messages, stream = true) {
       },
       body: JSON.stringify({
         model: 'claude-sonnet-4-6',
-        max_tokens: 8000,
+        max_tokens: 16000,
         stream,
         system: SYSTEM_PROMPT,
         messages,
@@ -244,7 +222,7 @@ async function callOpenAI(apiKey, messages, stream = true) {
       },
       body: JSON.stringify({
         model: 'gpt-4o',
-        max_tokens: 8000,
+        max_tokens: 16000,
         stream,
         messages: [
           { role: 'system', content: SYSTEM_PROMPT },
@@ -281,8 +259,8 @@ async function callGemini(apiKey, messages, stream = true) {
   }))
 
   const endpoint = stream
-    ? `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?key=${apiKey}&alt=sse`
-    : `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`
+    ? `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:streamGenerateContent?key=${apiKey}&alt=sse`
+    : `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${apiKey}`
 
   let res
   try {
@@ -292,7 +270,7 @@ async function callGemini(apiKey, messages, stream = true) {
       body: JSON.stringify({
         system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
         contents,
-        generationConfig: { maxOutputTokens: 8000 },
+        generationConfig: { maxOutputTokens: 16000 },
       }),
     })
   } catch (err) {
