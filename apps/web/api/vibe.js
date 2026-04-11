@@ -174,7 +174,7 @@ export default async function handler(req) {
     return corsResponse('Invalid JSON', { status: 400 })
   }
 
-  const { prompt, apiKey, provider = 'anthropic', model, history = [], currentCode, stream = true } = body
+  const { prompt, apiKey, provider = 'anthropic', model, history = [], currentCode, stream = true, raw = false } = body
 
   if (!prompt) return corsResponse('Missing prompt', { status: 400 })
   if (!apiKey) return corsResponse('Missing API key', { status: 401 })
@@ -198,15 +198,15 @@ export default async function handler(req) {
   // ── Route to correct provider ──────────────────────────────────────────────
 
   if (provider === 'openai') {
-    return callOpenAI(apiKey, messages, stream, model)
+    return callOpenAI(apiKey, messages, stream, model, raw)
   } else if (provider === 'gemini') {
-    return callGemini(apiKey, messages, stream, model)
+    return callGemini(apiKey, messages, stream, model, raw)
   } else {
-    return callAnthropic(apiKey, messages, stream, model)
+    return callAnthropic(apiKey, messages, stream, model, raw)
   }
 }
 
-async function callAnthropic(apiKey, messages, stream = true, model = 'claude-sonnet-4-6') {
+async function callAnthropic(apiKey, messages, stream = true, model = 'claude-sonnet-4-6', raw = false) {
   let res
   try {
     res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -235,7 +235,8 @@ async function callAnthropic(apiKey, messages, stream = true, model = 'claude-so
 
   if (!stream) {
     const json = await res.json()
-    const html = postProcessHtml(json.content?.[0]?.text ?? '')
+    const text = json.content?.[0]?.text ?? ''
+    const html = raw ? text : postProcessHtml(text)
     return corsResponse(JSON.stringify({ html }), {
       headers: { 'Content-Type': 'application/json' },
     })
@@ -276,7 +277,8 @@ async function callOpenAI(apiKey, messages, stream = true, model = 'gpt-4o') {
 
   if (!stream) {
     const json = await res.json()
-    const html = postProcessHtml(json.choices?.[0]?.message?.content ?? '')
+    const text = json.choices?.[0]?.message?.content ?? ''
+    const html = raw ? text : postProcessHtml(text)
     return corsResponse(JSON.stringify({ html }), {
       headers: { 'Content-Type': 'application/json' },
     })
@@ -287,7 +289,7 @@ async function callOpenAI(apiKey, messages, stream = true, model = 'gpt-4o') {
   })
 }
 
-async function callGemini(apiKey, messages, stream = true, model = 'gemini-2.5-pro') {
+async function callGemini(apiKey, messages, stream = true, model = 'gemini-2.5-pro', raw = false) {
   const contents = messages.map(m => ({
     role: m.role === 'assistant' ? 'model' : 'user',
     parts: [{ text: m.content }],
@@ -319,7 +321,8 @@ async function callGemini(apiKey, messages, stream = true, model = 'gemini-2.5-p
 
   if (!stream) {
     const json = await res.json()
-    const html = postProcessHtml(json.candidates?.[0]?.content?.parts?.[0]?.text ?? '')
+    const text = json.candidates?.[0]?.content?.parts?.[0]?.text ?? ''
+    const html = raw ? text : postProcessHtml(text)
     return corsResponse(JSON.stringify({ html }), {
       headers: { 'Content-Type': 'application/json' },
     })

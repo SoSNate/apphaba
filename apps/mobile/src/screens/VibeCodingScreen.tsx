@@ -337,18 +337,49 @@ export function VibeCodingScreen({ onBack, onOpenSettings, onPublished }: Props)
     } catch {}
   }
 
-  const generate = useCallback(async (prompt: string, isHeal = false) => {
+  const generate = useCallback(async (prompt: string, isHeal = false, skipPlan = false) => {
     if (!apiKey) {
       onOpenSettings()
       return
     }
 
-    setStatus('generating')
-    setStreamProgress(0)
     if (!isHeal) {
       setHealAttempts(0)
       setMessages(prev => [...prev, { role: 'user', content: prompt }])
     }
+
+    // ── Phase 1: Planning (only for new generations, not heals or iterations) ──
+    if (!isHeal && !skipPlan && !currentHtml) {
+      setStatus('generating')
+      try {
+        const planRes = await fetch(`${APP_URL}/api/vibe`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            prompt: `The user wants: "${prompt}"\n\nReply in 2-3 SHORT sentences (no code, no HTML):\n1. What app you'll build\n2. Key features/screens\n3. Which hardware you'll use (camera/GPS/haptics/storage/none)\n\nBe friendly and direct. Language: match the user's language.`,
+            apiKey,
+            provider: activeProvider,
+            model: activeModel,
+            history: [],
+            stream: false,
+            raw: true,
+          }),
+        })
+        if (planRes.ok) {
+          const planJson = await planRes.json()
+          // server returns { html: processedText } — for plain text plan, html may be empty
+          // fall back to raw response text
+          const planText = (planJson.html || planJson.text || planJson.raw || '').toString()
+          const cleanPlan = planText.replace(/<[^>]+>/g, '').trim()
+          if (cleanPlan && !cleanPlan.includes('<!doctype') && cleanPlan.length < 600) {
+            setMessages(prev => [...prev, { role: 'assistant', content: cleanPlan }])
+          }
+        }
+      } catch { /* plan is optional — continue to code generation regardless */ }
+    }
+
+    setStatus('generating')
+    setStreamProgress(0)
 
     // Wrap prompt to enforce HTML output — prevents AI from answering conversationally
     const wrappedPrompt = prompt.toLowerCase().startsWith('create') ||
