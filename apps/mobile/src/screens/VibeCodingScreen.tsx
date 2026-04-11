@@ -153,6 +153,7 @@ export function VibeCodingScreen({ onBack, onOpenSettings, onPublished }: Props)
   const chatEndRef = useRef<HTMLDivElement>(null)
   const touchStartX = useRef<number>(0)
   const touchStartY = useRef<number>(0)
+  const abortRef = useRef<AbortController | null>(null)
 
   const [activeProvider] = useState(
     () => localStorage.getItem('appaba_active_provider') ?? 'anthropic'
@@ -168,6 +169,11 @@ export function VibeCodingScreen({ onBack, onOpenSettings, onPublished }: Props)
   const liveCodeRef = useRef<HTMLDivElement>(null)
   const apiKey = localStorage.getItem(`appaba_api_key_${activeProvider}`)
     ?? localStorage.getItem('appaba_api_key') // fallback to legacy key
+
+  // Cancel in-flight request on unmount (e.g. screen off or navigate away)
+  useEffect(() => {
+    return () => { abortRef.current?.abort() }
+  }, [])
 
   // Time-based progress animation — gives visual feedback even without streaming
   useEffect(() => {
@@ -209,8 +215,11 @@ export function VibeCodingScreen({ onBack, onOpenSettings, onPublished }: Props)
       const { id, plugin, method, args } = msg
       if (!id || !plugin || !method) return
 
+      console.log(`[VibeBridge] ${plugin}.${method}`, args)
+
       const pluginImpl = PLUGIN_REGISTRY[plugin]?.[method]
       if (!pluginImpl) {
+        console.warn(`[VibeBridge] NOT FOUND: ${plugin}.${method}`)
         iframeRef.current?.contentWindow?.postMessage(
           { id, error: `Plugin "${plugin}.${method}" is not available` }, '*'
         )
@@ -380,6 +389,7 @@ export function VibeCodingScreen({ onBack, onOpenSettings, onPublished }: Props)
       let res: Response
       try {
         const controller = new AbortController()
+        abortRef.current = controller
         const timeout = setTimeout(() => controller.abort(), 90_000) // 90s max
         res = await fetch(`${APP_URL}/api/vibe`, {
           method: 'POST',
@@ -388,7 +398,10 @@ export function VibeCodingScreen({ onBack, onOpenSettings, onPublished }: Props)
           signal: controller.signal,
         })
         clearTimeout(timeout)
+        abortRef.current = null
       } catch (fetchErr: any) {
+        abortRef.current = null
+        // Screen turned off or user navigated away — abort silently
         if ((fetchErr as any)?.name === 'AbortError') throw new Error('Request timed out after 90s. Try a simpler prompt or switch to a faster model.')
         // CORS or network failure on native — fall back to CapacitorHttp (non-streaming)
         const fallback = await CapacitorHttp.post({
