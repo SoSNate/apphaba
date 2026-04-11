@@ -1,4 +1,4 @@
-export const config = { runtime: 'edge', maxDuration: 60 }
+export const config = { runtime: 'nodejs', maxDuration: 300 }
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
