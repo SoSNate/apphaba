@@ -163,6 +163,9 @@ export async function deleteLocalApp(appId: string): Promise<void> {
   const versions = JSON.parse(localStorage.getItem('appaba_local_versions') ?? '{}')
   delete versions[appId]
   localStorage.setItem('appaba_local_versions', JSON.stringify(versions))
+  const indexPaths = JSON.parse(localStorage.getItem('appaba_index_paths') ?? '{}')
+  delete indexPaths[appId]
+  localStorage.setItem('appaba_index_paths', JSON.stringify(indexPaths))
 }
 
 export function getLocalVersion(appId: string): string | null {

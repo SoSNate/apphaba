@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import type { User } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
-import { getLocalVersion } from '../lib/filesystem'
+import { getLocalVersion, deleteLocalApp } from '../lib/filesystem'
 import type { App } from '@appaba/shared'
 
 export interface AppWithStatus extends App {
@@ -58,5 +58,15 @@ export function useApps(user: User | null) {
     )
   }
 
-  return { apps, loading, loadApps, markDownloaded, markUpdated }
+  async function removeApp(appId: string, deleteFromCloud = false) {
+    await deleteLocalApp(appId)
+    if (deleteFromCloud) {
+      await supabase.from('apps').delete().eq('id', appId)
+    }
+    setApps(prev => deleteFromCloud ? prev.filter(a => a.id !== appId) : prev.map(a =>
+      a.id === appId ? { ...a, isDownloaded: false, hasUpdate: false } : a
+    ))
+  }
+
+  return { apps, loading, loadApps, markDownloaded, markUpdated, removeApp }
 }

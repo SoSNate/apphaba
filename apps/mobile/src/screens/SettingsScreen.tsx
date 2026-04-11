@@ -1,5 +1,8 @@
 import { useState } from 'react'
-import { ArrowLeft, Key, ExternalLink, Check, Eye, EyeOff, ChevronDown } from 'lucide-react'
+import { ArrowLeft, Key, ExternalLink, Check, Eye, EyeOff, ChevronDown, Sun, Moon, Camera, MapPin, Bell } from 'lucide-react'
+import { Camera as CapCamera } from '@capacitor/camera'
+import { Geolocation } from '@capacitor/geolocation'
+import { LocalNotifications } from '@capacitor/local-notifications'
 
 type Provider = 'anthropic' | 'openai' | 'gemini'
 
@@ -63,6 +66,8 @@ function modelKey(provider: Provider) { return `appaba_model_${provider}` }
 
 interface Props { onBack: () => void }
 
+type PermStatus = 'granted' | 'denied' | 'prompt' | 'checking'
+
 export function SettingsScreen({ onBack }: Props) {
   const [activeProvider, setActiveProvider] = useState<Provider>(
     () => (localStorage.getItem('appaba_active_provider') as Provider) ?? 'anthropic'
@@ -70,6 +75,54 @@ export function SettingsScreen({ onBack }: Props) {
   const [showProviderPicker, setShowProviderPicker] = useState(false)
   const [showModelPicker, setShowModelPicker] = useState(false)
   const [customModelInput, setCustomModelInput] = useState('')
+  const [darkMode, setDarkMode] = useState(() => localStorage.getItem('appaba_dark_mode') !== 'false')
+  const [permCamera, setPermCamera] = useState<PermStatus>('prompt')
+  const [permLocation, setPermLocation] = useState<PermStatus>('prompt')
+  const [permNotif, setPermNotif] = useState<PermStatus>('prompt')
+
+  function toggleDarkMode() {
+    const next = !darkMode
+    setDarkMode(next)
+    localStorage.setItem('appaba_dark_mode', String(next))
+    // Apply immediately to document
+    document.documentElement.classList.toggle('dark', next)
+  }
+
+  async function requestCamera() {
+    setPermCamera('checking')
+    try {
+      const r = await CapCamera.requestPermissions()
+      setPermCamera(r.camera === 'granted' ? 'granted' : 'denied')
+    } catch { setPermCamera('denied') }
+  }
+
+  async function requestLocation() {
+    setPermLocation('checking')
+    try {
+      const r = await Geolocation.requestPermissions()
+      setPermLocation(r.location === 'granted' ? 'granted' : 'denied')
+    } catch { setPermLocation('denied') }
+  }
+
+  async function requestNotifications() {
+    setPermNotif('checking')
+    try {
+      const r = await LocalNotifications.requestPermissions()
+      setPermNotif(r.display === 'granted' ? 'granted' : 'denied')
+    } catch { setPermNotif('denied') }
+  }
+
+  function permLabel(s: PermStatus) {
+    if (s === 'checking') return 'Checking...'
+    if (s === 'granted') return 'Granted ✓'
+    if (s === 'denied') return 'Denied'
+    return 'Tap to allow'
+  }
+  function permColor(s: PermStatus) {
+    if (s === 'granted') return 'text-green-400'
+    if (s === 'denied') return 'text-red-400'
+    return 'text-indigo-400'
+  }
 
   const provider = PROVIDERS.find(p => p.id === activeProvider)!
 
@@ -269,6 +322,47 @@ export function SettingsScreen({ onBack }: Props) {
             <ExternalLink className="w-3 h-3" />
             Get your key at {provider.docsLabel}
           </a>
+        </div>
+
+        {/* Appearance Card */}
+        <div className="bg-gray-900 rounded-2xl p-5 border border-gray-800">
+          <p className="text-xs text-gray-500 font-semibold uppercase tracking-wide mb-3">Appearance</p>
+          <button
+            onClick={toggleDarkMode}
+            className="w-full flex items-center justify-between bg-gray-800 rounded-xl px-4 py-3"
+          >
+            <div className="flex items-center gap-3">
+              {darkMode ? <Moon className="w-4 h-4 text-indigo-400" /> : <Sun className="w-4 h-4 text-yellow-400" />}
+              <span className="text-white text-sm">{darkMode ? 'Dark Mode' : 'Light Mode'}</span>
+            </div>
+            <div className={`w-11 h-6 rounded-full transition-colors ${darkMode ? 'bg-indigo-600' : 'bg-gray-600'} relative`}>
+              <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${darkMode ? 'translate-x-5' : 'translate-x-0.5'}`} />
+            </div>
+          </button>
+        </div>
+
+        {/* Permissions Card */}
+        <div className="bg-gray-900 rounded-2xl p-5 border border-gray-800">
+          <p className="text-xs text-gray-500 font-semibold uppercase tracking-wide mb-3">Permissions</p>
+          <div className="space-y-2">
+            {[
+              { icon: Camera, label: 'Camera', status: permCamera, request: requestCamera },
+              { icon: MapPin, label: 'Location', status: permLocation, request: requestLocation },
+              { icon: Bell, label: 'Notifications', status: permNotif, request: requestNotifications },
+            ].map(({ icon: Icon, label, status, request }) => (
+              <button
+                key={label}
+                onClick={status !== 'granted' ? request : undefined}
+                className="w-full flex items-center justify-between bg-gray-800 rounded-xl px-4 py-3"
+              >
+                <div className="flex items-center gap-3">
+                  <Icon className="w-4 h-4 text-gray-400" />
+                  <span className="text-white text-sm">{label}</span>
+                </div>
+                <span className={`text-xs font-medium ${permColor(status)}`}>{permLabel(status)}</span>
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* Status Card */}
