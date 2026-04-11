@@ -139,7 +139,7 @@ export default async function handler(req) {
     return corsResponse('Invalid JSON', { status: 400 })
   }
 
-  const { prompt, apiKey, provider = 'anthropic', history = [], currentCode, stream = true } = body
+  const { prompt, apiKey, provider = 'anthropic', model, history = [], currentCode, stream = true } = body
 
   if (!prompt) return corsResponse('Missing prompt', { status: 400 })
   if (!apiKey) return corsResponse('Missing API key', { status: 401 })
@@ -163,15 +163,15 @@ export default async function handler(req) {
   // ── Route to correct provider ──────────────────────────────────────────────
 
   if (provider === 'openai') {
-    return callOpenAI(apiKey, messages, stream)
+    return callOpenAI(apiKey, messages, stream, model)
   } else if (provider === 'gemini') {
-    return callGemini(apiKey, messages, stream)
+    return callGemini(apiKey, messages, stream, model)
   } else {
-    return callAnthropic(apiKey, messages, stream)
+    return callAnthropic(apiKey, messages, stream, model)
   }
 }
 
-async function callAnthropic(apiKey, messages, stream = true) {
+async function callAnthropic(apiKey, messages, stream = true, model = 'claude-sonnet-4-6') {
   let res
   try {
     res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -182,7 +182,7 @@ async function callAnthropic(apiKey, messages, stream = true) {
         'content-type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
+        model,
         max_tokens: 16000,
         stream,
         system: SYSTEM_PROMPT,
@@ -211,7 +211,7 @@ async function callAnthropic(apiKey, messages, stream = true) {
   })
 }
 
-async function callOpenAI(apiKey, messages, stream = true) {
+async function callOpenAI(apiKey, messages, stream = true, model = 'gpt-4o') {
   let res
   try {
     res = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -221,7 +221,7 @@ async function callOpenAI(apiKey, messages, stream = true) {
         'content-type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-4o',
+        model,
         max_tokens: 16000,
         stream,
         messages: [
@@ -252,15 +252,15 @@ async function callOpenAI(apiKey, messages, stream = true) {
   })
 }
 
-async function callGemini(apiKey, messages, stream = true) {
+async function callGemini(apiKey, messages, stream = true, model = 'gemini-2.5-pro') {
   const contents = messages.map(m => ({
     role: m.role === 'assistant' ? 'model' : 'user',
     parts: [{ text: m.content }],
   }))
 
   const endpoint = stream
-    ? `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:streamGenerateContent?key=${apiKey}&alt=sse`
-    : `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${apiKey}`
+    ? `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?key=${apiKey}&alt=sse`
+    : `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`
 
   let res
   try {

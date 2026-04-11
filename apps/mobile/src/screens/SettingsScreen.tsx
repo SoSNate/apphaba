@@ -3,22 +3,42 @@ import { ArrowLeft, Key, ExternalLink, Check, Eye, EyeOff, ChevronDown } from 'l
 
 type Provider = 'anthropic' | 'openai' | 'gemini'
 
-const PROVIDERS: { id: Provider; label: string; placeholder: string; docsUrl: string; docsLabel: string; model: string }[] = [
+interface ModelOption { id: string; label: string }
+
+const PROVIDERS: {
+  id: Provider
+  label: string
+  placeholder: string
+  docsUrl: string
+  docsLabel: string
+  defaultModel: string
+  models: ModelOption[]
+}[] = [
   {
     id: 'anthropic',
     label: 'Anthropic (Claude)',
     placeholder: 'sk-ant-api03-...',
     docsUrl: 'https://console.anthropic.com/settings/keys',
     docsLabel: 'console.anthropic.com',
-    model: 'claude-sonnet-4-6',
+    defaultModel: 'claude-sonnet-4-6',
+    models: [
+      { id: 'claude-opus-4-6',   label: 'Claude Opus 4.6 (most capable)' },
+      { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (recommended)' },
+      { id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5 (fastest)' },
+    ],
   },
   {
     id: 'openai',
-    label: 'OpenAI (GPT-4o)',
+    label: 'OpenAI (GPT)',
     placeholder: 'sk-proj-...',
     docsUrl: 'https://platform.openai.com/api-keys',
     docsLabel: 'platform.openai.com',
-    model: 'gpt-4o',
+    defaultModel: 'gpt-4o',
+    models: [
+      { id: 'gpt-4o',       label: 'GPT-4o (recommended)' },
+      { id: 'gpt-4o-mini',  label: 'GPT-4o Mini (faster)' },
+      { id: 'o3',           label: 'o3 (reasoning)' },
+    ],
   },
   {
     id: 'gemini',
@@ -26,38 +46,53 @@ const PROVIDERS: { id: Provider; label: string; placeholder: string; docsUrl: st
     placeholder: 'AIza...',
     docsUrl: 'https://aistudio.google.com/app/apikey',
     docsLabel: 'aistudio.google.com',
-    model: 'gemini-1.5-pro',
+    defaultModel: 'gemini-2.5-pro',
+    models: [
+      { id: 'gemini-2.5-pro',   label: 'Gemini 2.5 Pro (recommended)' },
+      { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (faster)' },
+      { id: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash' },
+    ],
   },
 ]
 
-function storageKey(provider: Provider) {
-  return `appaba_api_key_${provider}`
-}
+function storageKey(provider: Provider) { return `appaba_api_key_${provider}` }
+function modelKey(provider: Provider) { return `appaba_model_${provider}` }
 
-interface Props {
-  onBack: () => void
-}
+interface Props { onBack: () => void }
 
 export function SettingsScreen({ onBack }: Props) {
   const [activeProvider, setActiveProvider] = useState<Provider>(
     () => (localStorage.getItem('appaba_active_provider') as Provider) ?? 'anthropic'
   )
-  const [showPicker, setShowPicker] = useState(false)
+  const [showProviderPicker, setShowProviderPicker] = useState(false)
+  const [showModelPicker, setShowModelPicker] = useState(false)
 
   const provider = PROVIDERS.find(p => p.id === activeProvider)!
 
   const [apiKey, setApiKey] = useState(() => localStorage.getItem(storageKey(activeProvider)) ?? '')
   const [saved, setSaved] = useState(!!localStorage.getItem(storageKey(activeProvider)))
   const [visible, setVisible] = useState(false)
+  const [activeModel, setActiveModel] = useState(
+    () => localStorage.getItem(modelKey(activeProvider)) ?? provider.defaultModel
+  )
 
   function switchProvider(p: Provider) {
     setActiveProvider(p)
-    setShowPicker(false)
+    setShowProviderPicker(false)
     const key = localStorage.getItem(storageKey(p)) ?? ''
     setApiKey(key)
     setSaved(!!key)
     setVisible(false)
     localStorage.setItem('appaba_active_provider', p)
+    const pDef = PROVIDERS.find(x => x.id === p)!
+    const savedModel = localStorage.getItem(modelKey(p)) ?? pDef.defaultModel
+    setActiveModel(savedModel)
+  }
+
+  function selectModel(modelId: string) {
+    setActiveModel(modelId)
+    setShowModelPicker(false)
+    localStorage.setItem(modelKey(activeProvider), modelId)
   }
 
   function save() {
@@ -74,6 +109,7 @@ export function SettingsScreen({ onBack }: Props) {
   }
 
   const masked = apiKey ? apiKey.slice(0, 6) + '••••••••••••' + apiKey.slice(-4) : ''
+  const currentModelLabel = provider.models.find(m => m.id === activeModel)?.label ?? activeModel
 
   return (
     <div className="min-h-screen bg-gray-950 flex flex-col">
@@ -92,25 +128,52 @@ export function SettingsScreen({ onBack }: Props) {
           <p className="text-xs text-gray-500 font-semibold uppercase tracking-wide mb-3">AI Provider</p>
           <div className="relative">
             <button
-              onClick={() => setShowPicker(v => !v)}
+              onClick={() => { setShowProviderPicker(v => !v); setShowModelPicker(false) }}
               className="w-full flex items-center justify-between bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white text-sm"
             >
               <span>{provider.label}</span>
               <ChevronDown className="w-4 h-4 text-gray-400" />
             </button>
-            {showPicker && (
+            {showProviderPicker && (
               <div className="absolute z-10 top-full mt-1 left-0 right-0 bg-gray-800 border border-gray-700 rounded-xl overflow-hidden shadow-xl">
                 {PROVIDERS.map(p => (
                   <button
                     key={p.id}
                     onClick={() => switchProvider(p.id)}
                     className={`w-full text-left px-4 py-3 text-sm border-b border-gray-700 last:border-0 transition-colors ${
-                      p.id === activeProvider
-                        ? 'text-indigo-400 bg-indigo-900/30'
-                        : 'text-gray-300 hover:bg-gray-700'
+                      p.id === activeProvider ? 'text-indigo-400 bg-indigo-900/30' : 'text-gray-300 hover:bg-gray-700'
                     }`}
                   >
                     {p.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Model Picker */}
+        <div className="bg-gray-900 rounded-2xl p-5 border border-gray-800">
+          <p className="text-xs text-gray-500 font-semibold uppercase tracking-wide mb-3">Model</p>
+          <div className="relative">
+            <button
+              onClick={() => { setShowModelPicker(v => !v); setShowProviderPicker(false) }}
+              className="w-full flex items-center justify-between bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white text-sm"
+            >
+              <span className="truncate">{currentModelLabel}</span>
+              <ChevronDown className="w-4 h-4 text-gray-400 flex-shrink-0 ml-2" />
+            </button>
+            {showModelPicker && (
+              <div className="absolute z-10 top-full mt-1 left-0 right-0 bg-gray-800 border border-gray-700 rounded-xl overflow-hidden shadow-xl">
+                {provider.models.map(m => (
+                  <button
+                    key={m.id}
+                    onClick={() => selectModel(m.id)}
+                    className={`w-full text-left px-4 py-3 text-sm border-b border-gray-700 last:border-0 transition-colors ${
+                      m.id === activeModel ? 'text-indigo-400 bg-indigo-900/30' : 'text-gray-300 hover:bg-gray-700'
+                    }`}
+                  >
+                    {m.label}
                   </button>
                 ))}
               </div>
@@ -170,16 +233,13 @@ export function SettingsScreen({ onBack }: Props) {
             </div>
           )}
 
-          <a
-            href={provider.docsUrl}
-            className="flex items-center gap-1 mt-3 text-xs text-indigo-400"
-          >
+          <a href={provider.docsUrl} className="flex items-center gap-1 mt-3 text-xs text-indigo-400">
             <ExternalLink className="w-3 h-3" />
             Get your key at {provider.docsLabel}
           </a>
         </div>
 
-        {/* Info Card */}
+        {/* Status Card */}
         <div className="bg-gray-900 rounded-2xl p-5 border border-gray-800">
           <p className="text-xs text-gray-500 font-semibold uppercase tracking-wide mb-3">Status</p>
           <div className="space-y-2">
@@ -192,8 +252,8 @@ export function SettingsScreen({ onBack }: Props) {
               <span className="text-gray-300 text-sm">{provider.label}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-gray-400 text-sm">Model</span>
-              <span className="text-gray-300 text-sm">{provider.model}</span>
+              <span className="text-gray-400 text-sm">Active Model</span>
+              <span className="text-gray-300 text-sm font-mono text-xs">{activeModel}</span>
             </div>
             {PROVIDERS.map(p => (
               <div key={p.id} className="flex justify-between">
@@ -207,6 +267,7 @@ export function SettingsScreen({ onBack }: Props) {
             ))}
           </div>
         </div>
+
       </div>
     </div>
   )

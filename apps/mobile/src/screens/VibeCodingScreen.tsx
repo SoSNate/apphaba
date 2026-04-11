@@ -114,6 +114,7 @@ export function VibeCodingScreen({ onBack, onOpenSettings }: Props) {
   const activeProvider = localStorage.getItem('appaba_active_provider') ?? 'anthropic'
   const apiKey = localStorage.getItem(`appaba_api_key_${activeProvider}`)
     ?? localStorage.getItem('appaba_api_key') // fallback to legacy key
+  const activeModel = localStorage.getItem(`appaba_model_${activeProvider}`) ?? undefined
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -236,6 +237,7 @@ export function VibeCodingScreen({ onBack, onOpenSettings }: Props) {
         prompt: wrappedPrompt,
         apiKey,
         provider: activeProvider,
+        model: activeModel,
         history,
         currentCode: isHeal ? currentHtml : undefined,
       }
