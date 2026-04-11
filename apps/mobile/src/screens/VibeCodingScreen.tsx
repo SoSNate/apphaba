@@ -153,8 +153,26 @@ export function VibeCodingScreen({ onBack, onOpenSettings, onPublished }: Props)
   const [showModelPicker, setShowModelPicker] = useState(false)
   const [shareStatus, setShareStatus] = useState<'idle' | 'sharing'>('idle')
   const [streamProgress, setStreamProgress] = useState(0) // 0-100 estimated
+  const [elapsedSec, setElapsedSec] = useState(0)
   const apiKey = localStorage.getItem(`appaba_api_key_${activeProvider}`)
     ?? localStorage.getItem('appaba_api_key') // fallback to legacy key
+
+  // Time-based progress animation — gives visual feedback even without streaming
+  useEffect(() => {
+    if (status !== 'generating') { setElapsedSec(0); return }
+    const start = Date.now()
+    const interval = setInterval(() => {
+      const sec = Math.floor((Date.now() - start) / 1000)
+      setElapsedSec(sec)
+      // Animate progress: fast early, slow near 90%
+      setStreamProgress(p => {
+        if (p >= 90) return p
+        const inc = p < 20 ? 3 : p < 50 ? 1.5 : p < 75 ? 0.8 : 0.3
+        return Math.min(90, p + inc)
+      })
+    }, 600)
+    return () => clearInterval(interval)
+  }, [status])
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -907,17 +925,25 @@ ${trimmed}
 
             {/* Progress bar */}
             {status === 'generating' && (
-              <div className="bg-indigo-950 border-t border-indigo-900 px-4 py-1.5">
-                <div className="flex items-center gap-2 mb-1">
+              <div className="bg-indigo-950 border-t border-indigo-900 px-4 py-2">
+                <div className="flex items-center gap-2 mb-1.5">
                   <div className="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-pulse flex-shrink-0" />
                   <span className="text-indigo-300 text-xs">
-                    {healAttempts > 0 ? `Auto-fixing (${healAttempts}/2)...` : streamProgress < 10 ? 'Thinking...' : streamProgress < 95 ? 'Writing app...' : 'Finishing...'}
+                    {healAttempts > 0
+                      ? `Auto-fixing (${healAttempts}/2)...`
+                      : elapsedSec < 4 ? 'Thinking...'
+                      : elapsedSec < 15 ? 'Writing HTML...'
+                      : elapsedSec < 35 ? 'Building screens...'
+                      : elapsedSec < 60 ? 'Adding features...'
+                      : 'Almost done...'}
                   </span>
-                  <span className="text-indigo-500 text-xs ml-auto">{streamProgress}%</span>
+                  <span className="text-indigo-500 text-xs ml-auto tabular-nums">
+                    {elapsedSec}s
+                  </span>
                 </div>
-                <div className="w-full h-1 bg-indigo-900 rounded-full overflow-hidden">
+                <div className="w-full h-1.5 bg-indigo-900/60 rounded-full overflow-hidden">
                   <div
-                    className="h-full bg-indigo-500 rounded-full transition-all duration-300"
+                    className="h-full bg-gradient-to-r from-indigo-600 to-indigo-400 rounded-full transition-all duration-500"
                     style={{ width: `${streamProgress}%` }}
                   />
                 </div>
@@ -960,11 +986,28 @@ ${trimmed}
 
           {/* ── PREVIEW PANEL ── */}
           <div className="relative h-full" style={{ width: '50%' }}>
-            {!currentHtml && (
+            {!currentHtml && status !== 'generating' && (
               <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 pointer-events-none">
                 <Zap className="w-10 h-10 text-indigo-400/30" />
                 <p className="text-gray-600 text-sm">App preview will appear here</p>
                 <p className="text-gray-700 text-xs">← Swipe back to chat and type a prompt</p>
+              </div>
+            )}
+            {status === 'generating' && !currentHtml && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 pointer-events-none bg-gray-950">
+                <div className="relative">
+                  <div className="w-16 h-16 border-2 border-indigo-900 rounded-2xl" />
+                  <div className="absolute inset-0 w-16 h-16 border-2 border-indigo-500 border-t-transparent rounded-2xl animate-spin" />
+                  <Zap className="absolute inset-0 m-auto w-6 h-6 text-indigo-400" />
+                </div>
+                <div className="text-center">
+                  <p className="text-indigo-300 text-sm font-medium">Building your app</p>
+                  <p className="text-gray-600 text-xs mt-1">{elapsedSec}s elapsed</p>
+                </div>
+                <div className="w-48 h-1 bg-indigo-900/40 rounded-full overflow-hidden">
+                  <div className="h-full bg-indigo-500 rounded-full transition-all duration-500"
+                    style={{ width: `${streamProgress}%` }} />
+                </div>
               </div>
             )}
             <iframe
