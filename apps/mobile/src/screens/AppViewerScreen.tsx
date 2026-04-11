@@ -1,130 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
 import { Capacitor } from '@capacitor/core'
-import { Geolocation } from '@capacitor/geolocation'
-import { Camera, CameraResultType, CameraSource } from '@capacitor/camera'
-import { Haptics, ImpactStyle } from '@capacitor/haptics'
-import { Share } from '@capacitor/share'
-import { Clipboard } from '@capacitor/clipboard'
-import { Toast } from '@capacitor/toast'
-import { Device } from '@capacitor/device'
-import { Network } from '@capacitor/network'
-import { ScreenOrientation } from '@capacitor/screen-orientation'
-import { Preferences } from '@capacitor/preferences'
-import { ArrowLeft, AlertCircle } from 'lucide-react'
+import { ArrowLeft, AlertCircle, LayoutGrid } from 'lucide-react'
 import { getAppIndexUri } from '../lib/filesystem'
-
-// Full plugin registry — every method exposed to mini-apps
-const PLUGIN_REGISTRY: Record<string, Record<string, (...args: any[]) => Promise<any>>> = {
-  Geolocation: {
-    getCurrentPosition: (opts?: any) => Geolocation.getCurrentPosition(opts),
-    checkPermissions: () => Geolocation.checkPermissions(),
-    requestPermissions: () => Geolocation.requestPermissions(),
-  },
-  Camera: {
-    getPhoto: (opts: any) => Camera.getPhoto({
-      ...opts,
-      resultType: opts?.resultType === 'uri' ? CameraResultType.Uri
-        : opts?.resultType === 'dataUrl' ? CameraResultType.DataUrl
-        : CameraResultType.Base64,
-      source: opts?.source === 'PHOTOS' ? CameraSource.Photos
-        : opts?.source === 'PROMPT' ? CameraSource.Prompt
-        : CameraSource.Camera,
-    }),
-    checkPermissions: () => Camera.checkPermissions(),
-    requestPermissions: () => Camera.requestPermissions(),
-  },
-  Haptics: {
-    impact: (opts?: any) => {
-      console.log('[AppAba Bridge] Haptics.impact called with:', JSON.stringify(opts))
-      let style: ImpactStyle
-      if (typeof opts === 'string') {
-        const map: Record<string, ImpactStyle> = {
-          LIGHT: ImpactStyle.Light, MEDIUM: ImpactStyle.Medium, HEAVY: ImpactStyle.Heavy,
-          light: ImpactStyle.Light, medium: ImpactStyle.Medium, heavy: ImpactStyle.Heavy,
-        }
-        style = map[opts] ?? ImpactStyle.Medium
-      } else {
-        style = opts?.style ?? ImpactStyle.Medium
-      }
-      console.log('[AppAba Bridge] Haptics.impact → style:', style)
-      return Haptics.impact({ style }).then(r => { console.log('[AppAba Bridge] Haptics.impact OK') ; return r })
-        .catch(e => { console.error('[AppAba Bridge] Haptics.impact FAILED:', e.message) ; throw e })
-    },
-    vibrate: (opts?: any) => Haptics.vibrate(opts),
-    selectionStart: () => Haptics.selectionStart(),
-    selectionChanged: () => Haptics.selectionChanged(),
-    selectionEnd: () => Haptics.selectionEnd(),
-  },
-  Share: {
-    share: (opts: any) => Share.share(opts),
-    canShare: () => Share.canShare(),
-  },
-  Clipboard: {
-    write: (opts: any) => Clipboard.write(opts),
-    read: () => Clipboard.read(),
-  },
-  Toast: {
-    show: (opts: any) => Toast.show(opts),
-  },
-  Device: {
-    getInfo: () => Device.getInfo(),
-    getId: () => Device.getId(),
-    getBatteryInfo: () => Device.getBatteryInfo(),
-    getLanguageCode: () => Device.getLanguageCode(),
-  },
-  Network: {
-    getStatus: () => Network.getStatus(),
-  },
-  ScreenOrientation: {
-    orientation: () => ScreenOrientation.orientation(),
-    lock: (opts: any) => ScreenOrientation.lock(opts),
-    unlock: () => ScreenOrientation.unlock(),
-  },
-  Preferences: {
-    set: (opts: any) => Preferences.set(opts),
-    get: (opts: any) => Preferences.get(opts),
-    remove: (opts: any) => Preferences.remove(opts),
-    clear: () => Preferences.clear(),
-    keys: () => Preferences.keys(),
-  },
-  Shortcut: {
-    create: (opts: any) => (Capacitor.Plugins as any)['Shortcut']['create'](opts),
-  },
-  Widget: {
-    update: (widgetId: string, layout: any) =>
-      (Capacitor.Plugins as any)['Widget']['update']({ widgetId, layout: JSON.stringify(layout) }),
-    remove: (widgetId: string) =>
-      (Capacitor.Plugins as any)['Widget']['remove']({ widgetId }),
-    getCount: () =>
-      (Capacitor.Plugins as any)['Widget']['getCount'](),
-  },
-}
-
-// What capabilities this device supports — sent to mini-app on load
-async function detectCapabilities() {
-  const info = await Device.getInfo()
-  const network = await Network.getStatus()
-  const battery = await Device.getBatteryInfo()
-
-  return {
-    platform: Capacitor.getPlatform(),
-    device: {
-      model: info.model,
-      osVersion: info.osVersion,
-      manufacturer: info.manufacturer,
-      isVirtual: info.isVirtual,
-    },
-    network: {
-      connected: network.connected,
-      type: network.connectionType,
-    },
-    battery: {
-      level: battery.batteryLevel,
-      charging: battery.isCharging,
-    },
-    plugins: Object.keys(PLUGIN_REGISTRY),
-  }
-}
+import { useAppBridge } from '../hooks/useAppBridge'
+import { WidgetBuilderScreen } from './WidgetBuilderScreen'
 
 interface Props {
   appId: string
@@ -135,7 +14,9 @@ interface Props {
 export function AppViewerScreen({ appId, appName, onBack }: Props) {
   const [uri, setUri] = useState<string | null>(null)
   const [error, setError] = useState('')
+  const [showWidget, setShowWidget] = useState(false)
   const iframeRef = useRef<HTMLIFrameElement>(null)
+  const { sendCapabilities } = useAppBridge(iframeRef)
 
   useEffect(() => {
     getAppIndexUri(appId)
@@ -146,45 +27,6 @@ export function AppViewerScreen({ appId, appName, onBack }: Props) {
       .catch(() => setError('Could not load app. Try re-downloading it.'))
   }, [appId])
 
-  // Send capabilities to mini-app as soon as iframe loads
-  async function handleIframeLoad() {
-    try {
-      const caps = await detectCapabilities()
-      iframeRef.current?.contentWindow?.postMessage(
-        { type: 'appaba:capabilities', capabilities: caps }, '*'
-      )
-    } catch {}
-  }
-
-  // postMessage bridge: mini-app → AppAba → Capacitor plugin → mini-app
-  useEffect(() => {
-    async function handleMessage(event: MessageEvent) {
-      const { id, plugin, method, args } = event.data ?? {}
-      if (!id || !plugin || !method) return
-
-      console.log(`[AppAba Bridge] ${plugin}.${method}`, args)
-
-      const pluginImpl = PLUGIN_REGISTRY[plugin]?.[method]
-      if (!pluginImpl) {
-        console.warn(`[AppAba Bridge] NOT FOUND: ${plugin}.${method}`)
-        iframeRef.current?.contentWindow?.postMessage(
-          { id, error: `Plugin "${plugin}.${method}" is not available` }, '*'
-        )
-        return
-      }
-      try {
-        const result = await pluginImpl(...(args ?? []))
-        iframeRef.current?.contentWindow?.postMessage({ id, result }, '*')
-      } catch (err: any) {
-        console.error(`[AppAba Bridge] ${plugin}.${method} ERROR:`, err.message)
-        iframeRef.current?.contentWindow?.postMessage({ id, error: err.message }, '*')
-      }
-    }
-
-    window.addEventListener('message', handleMessage)
-    return () => window.removeEventListener('message', handleMessage)
-  }, [])
-
   return (
     <div className="fixed inset-0 bg-white flex flex-col z-50">
       <div className="flex items-center gap-2 px-4 py-2 bg-gray-900 flex-shrink-0">
@@ -192,6 +34,9 @@ export function AppViewerScreen({ appId, appName, onBack }: Props) {
           <ArrowLeft className="w-5 h-5" />
         </button>
         <span className="text-white text-sm font-medium flex-1 truncate">{appName}</span>
+        <button onClick={() => setShowWidget(true)} className="text-gray-400 hover:text-white p-1">
+          <LayoutGrid className="w-4 h-4" />
+        </button>
         <span className="text-xs text-gray-500 bg-gray-800 px-2 py-0.5 rounded">AppAba</span>
       </div>
 
@@ -212,8 +57,12 @@ export function AppViewerScreen({ appId, appName, onBack }: Props) {
           className="flex-1 w-full border-none"
           sandbox="allow-scripts allow-same-origin allow-forms"
           title={appName}
-          onLoad={handleIframeLoad}
+          onLoad={sendCapabilities}
         />
+      )}
+
+      {showWidget && (
+        <WidgetBuilderScreen appId={appId} appName={appName} onClose={() => setShowWidget(false)} />
       )}
     </div>
   )
