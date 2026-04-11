@@ -216,8 +216,12 @@ export function VibeCodingScreen({ onBack, onOpenSettings }: Props) {
 })();
 <\/script>`
 
-    // Remove any <script src="appaba-sdk.js"...> tags and inject inline SDK instead
-    let patched = html.replace(/<script[^>]+appaba-sdk\.js[^>]*><\/script>/gi, '')
+    // Fix common AI mistakes before loading
+    let patched = html
+      .replace(/<script[^>]+appaba-sdk\.js[^>]*><\/script>/gi, '')
+      // Fix broken Preact import: preact/compat doesn't export h, but preact does
+      .replace(/from\s+['"]https:\/\/esm\.sh\/preact\/compat['"]/g, "from 'https://esm.sh/preact'")
+      .replace(/from\s+['"]https:\/\/esm\.sh\/preact@[^'"]+\/compat['"]/g, "from 'https://esm.sh/preact'")
     if (patched.includes('</head>')) {
       patched = patched.replace('</head>', sdkInline + '\n</head>')
     } else if (patched.includes('</body>')) {
@@ -658,7 +662,7 @@ export function VibeCodingScreen({ onBack, onOpenSettings }: Props) {
               ref={iframeRef}
               className="w-full h-full border-none"
               style={{ opacity: currentHtml ? 1 : 0 }}
-              sandbox="allow-scripts allow-same-origin allow-forms"
+              sandbox="allow-scripts allow-forms allow-popups"
               title="Vibe Preview"
               onLoad={handleIframeLoad}
             />
