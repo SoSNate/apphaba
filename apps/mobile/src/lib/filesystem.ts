@@ -4,6 +4,35 @@ import type { App } from '@appaba/shared'
 
 const BASE_DIR = Directory.Data
 
+// Inline AppAba SDK — written alongside index.html on download so relative <script src> works
+const APPABA_SDK = `(function(){
+  var pending = {};
+  window.AppAba = new Proxy({}, {
+    get: function(_, plugin) {
+      return new Proxy({}, {
+        get: function(_, method) {
+          return function() {
+            var args = Array.prototype.slice.call(arguments);
+            return new Promise(function(resolve, reject) {
+              var id = Math.random().toString(36).slice(2);
+              pending[id] = { resolve: resolve, reject: reject };
+              window.parent.postMessage({ id: id, plugin: plugin, method: method, args: args }, '*');
+            });
+          };
+        }
+      });
+    }
+  });
+  window.addEventListener('message', function(e) {
+    var d = e.data;
+    if (!d || !d.id || !pending[d.id]) return;
+    var p = pending[d.id];
+    delete pending[d.id];
+    if (d.error) p.reject(new Error(d.error));
+    else p.resolve(d.result);
+  });
+})();`
+
 /** Recursively list all file paths under a storage prefix */
 async function listAllStorageFiles(bucket: string, prefix: string): Promise<string[]> {
   const { data, error } = await supabase.storage.from(bucket).list(prefix, { limit: 1000 })
@@ -61,6 +90,13 @@ export async function downloadAppFiles(
       data: base64,
     })
   }
+
+  // Write appaba-sdk.js alongside the app files so relative <script src="appaba-sdk.js"> works
+  await Filesystem.writeFile({
+    path: `apps/${app.id}/appaba-sdk.js`,
+    directory: BASE_DIR,
+    data: btoa(APPABA_SDK),
+  }).catch(() => {})
 
   // Save local version timestamp + index path
   const versions = JSON.parse(localStorage.getItem('appaba_local_versions') ?? '{}')

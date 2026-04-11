@@ -179,7 +179,46 @@ export function VibeCodingScreen({ onBack, onOpenSettings }: Props) {
   function injectIntoIframe(html: string) {
     if (!iframeRef.current) return
     if (currentBlobUrl.current) URL.revokeObjectURL(currentBlobUrl.current)
-    const blob = new Blob([html], { type: 'text/html' })
+
+    // Replace external SDK script tag with inline SDK so it works from any origin
+    const sdkInline = `<script>
+(function(){
+  var pending = {};
+  window.AppAba = new Proxy({}, {
+    get: function(_, plugin) {
+      return new Proxy({}, {
+        get: function(_, method) {
+          return function() {
+            var args = Array.prototype.slice.call(arguments);
+            return new Promise(function(resolve, reject) {
+              var id = Math.random().toString(36).slice(2);
+              pending[id] = { resolve: resolve, reject: reject };
+              window.parent.postMessage({ id: id, plugin: plugin, method: method, args: args }, '*');
+            });
+          };
+        }
+      });
+    }
+  });
+  window.addEventListener('message', function(e) {
+    var d = e.data;
+    if (!d || !d.id || !pending[d.id]) return;
+    var p = pending[d.id];
+    delete pending[d.id];
+    if (d.error) p.reject(new Error(d.error));
+    else p.resolve(d.result);
+  });
+})();
+<\/script>`
+
+    // Remove any <script src="appaba-sdk.js"...> tags and inject inline SDK instead
+    const patched = html
+      .replace(/<script[^>]+appaba-sdk\.js[^>]*><\/script>/gi, '')
+      .replace('</head>', sdkInline + '\n</head>')
+      // If no </head>, inject before </body> or at end
+      .replace(/^((?!<\/head>)[\s\S])*$/, m => m.replace('</body>', sdkInline + '\n</body>'))
+
+    const blob = new Blob([patched], { type: 'text/html' })
     const url = URL.createObjectURL(blob)
     currentBlobUrl.current = url
     iframeRef.current.src = url
