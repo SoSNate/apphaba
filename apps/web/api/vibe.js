@@ -61,8 +61,10 @@ const pos = await AppAba.Geolocation.getCurrentPosition({ enableHighAccuracy: tr
 const photo = await AppAba.Camera.getPhoto({ quality: 85, resultType: 'base64', source: 'CAMERA' })
 document.getElementById('img').src = 'data:image/jpeg;base64,' + photo.base64String
 
-// Haptics — add to EVERY button
-await AppAba.Haptics.impact('MEDIUM')  // LIGHT | MEDIUM | HEAVY
+// Haptics — add to EVERY button (pass style as string)
+await AppAba.Haptics.impact('MEDIUM')  // 'LIGHT' | 'MEDIUM' | 'HEAVY'
+await AppAba.Haptics.impact('HEAVY')   // for important actions
+await AppAba.Haptics.impact('LIGHT')   // for subtle feedback
 
 // Toast — use instead of alert()
 await AppAba.Toast.show({ text: 'Saved!', duration: 'short', position: 'bottom' })
