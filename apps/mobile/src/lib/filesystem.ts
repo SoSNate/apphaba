@@ -1,4 +1,4 @@
-import { Filesystem, Directory } from '@capacitor/filesystem'
+import { Filesystem, Directory, Encoding } from '@capacitor/filesystem'
 import { supabase } from './supabase'
 import type { App } from '@appaba/shared'
 
@@ -95,7 +95,8 @@ export async function downloadAppFiles(
   await Filesystem.writeFile({
     path: `apps/${app.id}/appaba-sdk.js`,
     directory: BASE_DIR,
-    data: btoa(APPABA_SDK),
+    data: APPABA_SDK,
+    encoding: Encoding.UTF8,
   }).catch(() => {})
 
   // Save local version timestamp + index path
