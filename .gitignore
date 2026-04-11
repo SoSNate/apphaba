@@ -6,3 +6,5 @@ android/
 ios/
 *.local
 .claude/
+
+.vercel

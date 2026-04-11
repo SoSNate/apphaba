@@ -3,82 +3,16 @@ import { ArrowLeft, Send, Zap, RotateCcw, Copy, Upload, FileInput, Link, Clipboa
 import { Capacitor } from '@capacitor/core'
 import { CapacitorHttp } from '@capacitor/core'
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem'
-import { Geolocation } from '@capacitor/geolocation'
-import { Camera, CameraResultType, CameraSource } from '@capacitor/camera'
 import { Haptics, ImpactStyle } from '@capacitor/haptics'
 import { Share } from '@capacitor/share'
 import { Clipboard } from '@capacitor/clipboard'
 import { Toast } from '@capacitor/toast'
 import { Device } from '@capacitor/device'
 import { Network } from '@capacitor/network'
-import { Preferences } from '@capacitor/preferences'
 import { supabase } from '../lib/supabase'
+import { useAppBridge } from '../hooks/useAppBridge'
+import { PLUGIN_REGISTRY } from '../lib/bridge-registry'
 
-// Full plugin registry — every method exposed to mini-apps via postMessage bridge
-const PLUGIN_REGISTRY: Record<string, Record<string, (...args: any[]) => Promise<any>>> = {
-  Geolocation: {
-    getCurrentPosition: (opts?: any) => Geolocation.getCurrentPosition(opts),
-    checkPermissions: () => Geolocation.checkPermissions(),
-    requestPermissions: () => Geolocation.requestPermissions(),
-  },
-  Camera: {
-    getPhoto: (opts: any) => Camera.getPhoto({
-      ...opts,
-      resultType: opts?.resultType === 'uri' ? CameraResultType.Uri
-        : opts?.resultType === 'dataUrl' ? CameraResultType.DataUrl
-        : CameraResultType.Base64,
-      source: opts?.source === 'PHOTOS' ? CameraSource.Photos
-        : opts?.source === 'PROMPT' ? CameraSource.Prompt
-        : CameraSource.Camera,
-    }),
-    checkPermissions: () => Camera.checkPermissions(),
-    requestPermissions: () => Camera.requestPermissions(),
-  },
-  Haptics: {
-    impact: (opts?: any) => {
-      // Accept both string ('MEDIUM') and object ({ style: ImpactStyle.Medium })
-      if (typeof opts === 'string') {
-        const map: Record<string, ImpactStyle> = {
-          LIGHT: ImpactStyle.Light, MEDIUM: ImpactStyle.Medium, HEAVY: ImpactStyle.Heavy,
-          light: ImpactStyle.Light, medium: ImpactStyle.Medium, heavy: ImpactStyle.Heavy,
-        }
-        return Haptics.impact({ style: map[opts] ?? ImpactStyle.Medium })
-      }
-      return Haptics.impact(opts ?? { style: ImpactStyle.Medium })
-    },
-    vibrate: (opts?: any) => Haptics.vibrate(opts),
-    selectionStart: () => Haptics.selectionStart(),
-    selectionChanged: () => Haptics.selectionChanged(),
-    selectionEnd: () => Haptics.selectionEnd(),
-  },
-  Share: {
-    share: (opts: any) => Share.share(opts),
-    canShare: () => Share.canShare(),
-  },
-  Clipboard: {
-    write: (opts: any) => Clipboard.write(opts),
-    read: () => Clipboard.read(),
-  },
-  Toast: {
-    show: (opts: any) => Toast.show(opts),
-  },
-  Device: {
-    getInfo: () => Device.getInfo(),
-    getId: () => Device.getId(),
-    getBatteryInfo: () => Device.getBatteryInfo(),
-    getLanguageCode: () => Device.getLanguageCode(),
-  },
-  Network: {
-    getStatus: () => Network.getStatus(),
-  },
-  Preferences: {
-    set: (opts: any) => Preferences.set(opts),
-    get: (opts: any) => Preferences.get(opts),
-    remove: (opts: any) => Preferences.remove(opts),
-    clear: () => Preferences.clear(),
-    keys: () => Preferences.keys(),
-  },
-}
 
 const APP_URL = import.meta.env.VITE_APP_URL ?? 'https://apphaba-web.vercel.app'
 
@@ -196,66 +130,28 @@ export function VibeCodingScreen({ onBack, onOpenSettings, onPublished }: Props)
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  // postMessage bridge — dispatch to actual Capacitor plugins
-  useEffect(() => {
-    async function handleMessage(event: MessageEvent) {
-      const msg = event.data ?? {}
+  // Shared bridge — dispatches plugin calls from iframe to Capacitor
+  const { sendCapabilities } = useAppBridge(iframeRef)
 
-      // Error/blank from iframe — try to self-heal
+  // Self-healing: listen for error/blank messages from iframe
+  useEffect(() => {
+    function handleHeal(event: MessageEvent) {
+      const msg = event.data ?? {}
       if ((msg.type === 'appaba:error' || msg.type === 'appaba:blank') && healAttempts < 2) {
         setHealAttempts(h => h + 1)
         const ctx = msg.type === 'appaba:blank'
           ? 'The app rendered a completely blank screen. Fix it so content displays correctly.'
           : `The code threw this error: "${msg.error}". Fix it silently without changing the app's functionality.`
         generate(ctx, true)
-        return
-      }
-
-      // Plugin bridge — dispatch to PLUGIN_REGISTRY
-      const { id, plugin, method, args } = msg
-      if (!id || !plugin || !method) return
-
-      console.log(`[VibeBridge] ${plugin}.${method}`, args)
-
-      const pluginImpl = PLUGIN_REGISTRY[plugin]?.[method]
-      if (!pluginImpl) {
-        console.warn(`[VibeBridge] NOT FOUND: ${plugin}.${method}`)
-        iframeRef.current?.contentWindow?.postMessage(
-          { id, error: `Plugin "${plugin}.${method}" is not available` }, '*'
-        )
-        return
-      }
-      try {
-        const result = await pluginImpl(...(args ?? []))
-        iframeRef.current?.contentWindow?.postMessage({ id, result }, '*')
-      } catch (err: any) {
-        iframeRef.current?.contentWindow?.postMessage({ id, error: err.message }, '*')
       }
     }
-
-    window.addEventListener('message', handleMessage)
-    return () => window.removeEventListener('message', handleMessage)
+    window.addEventListener('message', handleHeal)
+    return () => window.removeEventListener('message', handleHeal)
   }, [healAttempts])
 
   async function handleIframeLoad() {
     injectErrorCatcher()
-    try {
-      const [info, network, battery] = await Promise.all([
-        Device.getInfo(),
-        Network.getStatus(),
-        Device.getBatteryInfo(),
-      ])
-      iframeRef.current?.contentWindow?.postMessage({
-        type: 'appaba:capabilities',
-        capabilities: {
-          platform: Capacitor.getPlatform(),
-          device: { model: info.model, osVersion: info.osVersion, manufacturer: info.manufacturer, isVirtual: info.isVirtual },
-          network: { connected: network.connected, type: network.connectionType },
-          battery: { level: battery.batteryLevel, charging: battery.isCharging },
-          plugins: Object.keys(PLUGIN_REGISTRY),
-        },
-      }, '*')
-    } catch {}
+    await sendCapabilities()
   }
 
   function injectIntoIframe(html: string) {
