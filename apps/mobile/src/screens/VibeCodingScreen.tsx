@@ -152,6 +152,7 @@ export function VibeCodingScreen({ onBack, onOpenSettings, onPublished }: Props)
   )
   const [showModelPicker, setShowModelPicker] = useState(false)
   const [shareStatus, setShareStatus] = useState<'idle' | 'sharing'>('idle')
+  const [streamProgress, setStreamProgress] = useState(0) // 0-100 estimated
   const apiKey = localStorage.getItem(`appaba_api_key_${activeProvider}`)
     ?? localStorage.getItem('appaba_api_key') // fallback to legacy key
 
@@ -304,6 +305,7 @@ export function VibeCodingScreen({ onBack, onOpenSettings, onPublished }: Props)
     }
 
     setStatus('generating')
+    setStreamProgress(0)
     if (!isHeal) {
       setHealAttempts(0)
       setMessages(prev => [...prev, { role: 'user', content: prompt }])
@@ -341,33 +343,41 @@ export function VibeCodingScreen({ onBack, onOpenSettings, onPublished }: Props)
 
       let html = ''
 
-      if (Capacitor.isNativePlatform()) {
-        // ── Native: use CapacitorHttp to bypass CORS ──────────────────────────
-        const res = await CapacitorHttp.post({
-          url: `${APP_URL}/api/vibe`,
-          headers: { 'Content-Type': 'application/json' },
-          data: { ...payload, stream: false },
-        })
-        if (res.status >= 400) throw new Error(
-          typeof res.data === 'string' ? res.data : JSON.stringify(res.data) ?? `HTTP ${res.status}`
-        )
-        html = res.data?.html ?? ''
-        if (!html) throw new Error('AI did not return valid HTML. Try rephrasing your prompt.')
-        injectIntoIframe(html)
-      } else {
-        // ── Web: streaming SSE ────────────────────────────────────────────────
-        const res = await fetch(`${APP_URL}/api/vibe`, {
+      // ── Streaming fetch (works on both web and native — server sends CORS: *) ──
+      // Switch to preview immediately so user sees HTML building up live
+      setActivePanel('preview')
+
+      let res: Response
+      try {
+        res = await fetch(`${APP_URL}/api/vibe`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
         })
+      } catch (fetchErr: any) {
+        // CORS or network failure on native — fall back to CapacitorHttp (non-streaming)
+        const fallback = await CapacitorHttp.post({
+          url: `${APP_URL}/api/vibe`,
+          headers: { 'Content-Type': 'application/json' },
+          data: { ...payload, stream: false },
+        })
+        if (fallback.status >= 400) throw new Error(
+          typeof fallback.data === 'string' ? fallback.data : JSON.stringify(fallback.data)
+        )
+        html = fallback.data?.html ?? ''
+        if (!html) throw new Error('AI did not return valid HTML. Try rephrasing your prompt.')
+        injectIntoIframe(html)
+        // skip SSE section below
+        res = { ok: true, body: null } as unknown as Response
+      }
 
+      if (res.ok && res.body) {
         if (!res.ok) {
           const err = await res.text()
           throw new Error(err || `HTTP ${res.status}`)
         }
 
-        const reader = res.body!.getReader()
+        const reader = res.body.getReader()
         const decoder = new TextDecoder()
         let buffer = ''
 
@@ -392,7 +402,10 @@ export function VibeCodingScreen({ onBack, onOpenSettings, onPublished }: Props)
                   ''
                 if (delta) {
                   html += delta
-                  if (html.includes('</html>') || html.length > 2000) {
+                  // Estimate progress (typical app = ~8000 chars)
+                  setStreamProgress(Math.min(95, Math.round(html.length / 80)))
+                  // Show partial preview as soon as we have meaningful HTML
+                  if (html.includes('</body>') || html.includes('</html>') || html.length > 3000) {
                     injectIntoIframe(html)
                   }
                 }
@@ -417,6 +430,7 @@ export function VibeCodingScreen({ onBack, onOpenSettings, onPublished }: Props)
       }
 
       setStatus('idle')
+      setStreamProgress(100)
       if (isHeal && html) Toast.show({ text: '✅ Auto-fixed!', duration: 'short', position: 'bottom' })
     } catch (err: any) {
       setStatus('error')
@@ -891,13 +905,22 @@ ${trimmed}
               <div ref={chatEndRef} />
             </div>
 
-            {/* Generating indicator */}
+            {/* Progress bar */}
             {status === 'generating' && (
-              <div className="flex items-center gap-2 px-4 py-1.5 bg-indigo-950 border-t border-indigo-900">
-                <div className="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-pulse" />
-                <span className="text-indigo-300 text-xs">
-                  {healAttempts > 0 ? `Auto-fixing (${healAttempts}/2)...` : 'Generating...'}
-                </span>
+              <div className="bg-indigo-950 border-t border-indigo-900 px-4 py-1.5">
+                <div className="flex items-center gap-2 mb-1">
+                  <div className="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-pulse flex-shrink-0" />
+                  <span className="text-indigo-300 text-xs">
+                    {healAttempts > 0 ? `Auto-fixing (${healAttempts}/2)...` : streamProgress < 10 ? 'Thinking...' : streamProgress < 95 ? 'Writing app...' : 'Finishing...'}
+                  </span>
+                  <span className="text-indigo-500 text-xs ml-auto">{streamProgress}%</span>
+                </div>
+                <div className="w-full h-1 bg-indigo-900 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-indigo-500 rounded-full transition-all duration-300"
+                    style={{ width: `${streamProgress}%` }}
+                  />
+                </div>
               </div>
             )}
 
