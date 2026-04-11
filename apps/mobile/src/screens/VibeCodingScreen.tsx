@@ -166,11 +166,11 @@ export function VibeCodingScreen({ onBack, onOpenSettings, onPublished }: Props)
     const interval = setInterval(() => {
       const sec = Math.floor((Date.now() - start) / 1000)
       setElapsedSec(sec)
-      // Animate progress: fast early, slow near 90%
+      // Animate progress: fast early, very slow near 99% — never reaches 100 until done
       setStreamProgress(p => {
-        if (p >= 90) return p
-        const inc = p < 20 ? 3 : p < 50 ? 1.5 : p < 75 ? 0.8 : 0.3
-        return Math.min(90, p + inc)
+        if (p >= 99) return 99
+        const inc = p < 20 ? 3 : p < 50 ? 1.5 : p < 75 ? 0.8 : p < 90 ? 0.3 : 0.08
+        return Math.min(99, p + inc)
       })
     }, 600)
     return () => clearInterval(interval)
@@ -422,8 +422,8 @@ export function VibeCodingScreen({ onBack, onOpenSettings, onPublished }: Props)
                   ''
                 if (delta) {
                   html += delta
-                  // Estimate progress (typical app = ~8000 chars)
-                  setStreamProgress(Math.min(95, Math.round(html.length / 80)))
+                  // Estimate progress (typical app ~12000 chars, complex ~20000)
+                  setStreamProgress(p => Math.max(p, Math.min(97, Math.round(html.length / 130))))
                   // Live code preview — last 600 chars
                   setLiveCode(html.slice(-600))
                   // Auto-scroll live code box
