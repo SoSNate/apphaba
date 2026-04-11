@@ -113,7 +113,7 @@ export function WidgetBuilderScreen({ appId, appName, onClose }: Props) {
     try {
       await (Capacitor.Plugins as any)['Widget']['update']({
         widgetId: appId,
-        layout: JSON.stringify(config),
+        layout: config,
       })
       await Haptics.impact({ style: ImpactStyle.Medium })
       await Toast.show({ text: 'Widget added to home screen!', duration: 'short', position: 'bottom' })

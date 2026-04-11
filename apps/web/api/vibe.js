@@ -69,9 +69,9 @@ await AppAba.Haptics.impact('LIGHT')   // for subtle feedback
 // Toast — use instead of alert()
 await AppAba.Toast.show({ text: 'Saved!', duration: 'short', position: 'bottom' })
 
-// Storage — NEVER use localStorage
-await AppAba.Preferences.set('key', JSON.stringify(data))
-const raw = await AppAba.Preferences.get('key')
+// Storage — NEVER use localStorage, ALWAYS pass a string key
+await AppAba.Preferences.set('myapp_data', JSON.stringify(data))
+const raw = await AppAba.Preferences.get('myapp_data')  // key is REQUIRED — never omit it
 const data = raw ? JSON.parse(raw) : defaultValue
 
 // Share
