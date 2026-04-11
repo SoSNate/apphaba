@@ -121,7 +121,10 @@ try {
 - navigator.geolocation → AppAba.Geolocation
 - getUserMedia → AppAba.Camera
 - alert() / confirm() / prompt() → custom modals or AppAba.Toast
-- npm imports → esm.sh CDN only (e.g. https://esm.sh/preact/compat)
+- ANY framework imports (React, Preact, Vue, Svelte) → use vanilla JS only
+- import { h } from 'https://esm.sh/preact/compat' → NEVER use this
+- npm imports of any kind → use only Tailwind CDN + AppAba SDK, nothing else
+- <script type="module"> with external imports → use regular scripts only
 - Placeholders, TODOs, "coming soon" → implement everything fully
 - Single-screen apps for complex requests → use multi-screen architecture
 - Hardcoded data that should be user-generated → use AppAba.Preferences
