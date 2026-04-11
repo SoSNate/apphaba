@@ -940,7 +940,14 @@ ${trimmed}
                   <div className="w-2 h-2 rounded-full bg-red-500/60" />
                   <div className="w-2 h-2 rounded-full bg-yellow-500/60" />
                   <div className="w-2 h-2 rounded-full bg-green-500/60" />
-                  <span className="text-gray-600 text-xs ml-1 font-mono">index.html</span>
+                  <span className="text-gray-600 text-xs ml-1 font-mono flex-1">index.html</span>
+                  <button
+                    onClick={() => setActivePanel('preview')}
+                    className="flex items-center gap-1 text-indigo-400 text-xs bg-indigo-900/40 border border-indigo-800/60 rounded-md px-2 py-0.5 active:bg-indigo-900"
+                  >
+                    <span>Preview</span>
+                    <span>→</span>
+                  </button>
                 </div>
                 <div
                   ref={liveCodeRef}
