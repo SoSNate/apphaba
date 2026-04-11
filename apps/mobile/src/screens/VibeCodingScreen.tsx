@@ -212,11 +212,14 @@ export function VibeCodingScreen({ onBack, onOpenSettings }: Props) {
 <\/script>`
 
     // Remove any <script src="appaba-sdk.js"...> tags and inject inline SDK instead
-    const patched = html
-      .replace(/<script[^>]+appaba-sdk\.js[^>]*><\/script>/gi, '')
-      .replace('</head>', sdkInline + '\n</head>')
-      // If no </head>, inject before </body> or at end
-      .replace(/^((?!<\/head>)[\s\S])*$/, m => m.replace('</body>', sdkInline + '\n</body>'))
+    let patched = html.replace(/<script[^>]+appaba-sdk\.js[^>]*><\/script>/gi, '')
+    if (patched.includes('</head>')) {
+      patched = patched.replace('</head>', sdkInline + '\n</head>')
+    } else if (patched.includes('</body>')) {
+      patched = patched.replace('</body>', sdkInline + '\n</body>')
+    } else {
+      patched = patched + '\n' + sdkInline
+    }
 
     const blob = new Blob([patched], { type: 'text/html' })
     const url = URL.createObjectURL(blob)
