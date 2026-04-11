@@ -55,12 +55,12 @@ export default async function handler(req) {
     return corsResponse('Invalid JSON', { status: 400 })
   }
 
-  const { appName, provider = 'anthropic', apiKey, model } = body
+  const { appName, styleHint = '', provider = 'anthropic', apiKey, model } = body
 
   if (!appName) return corsResponse('Missing appName', { status: 400 })
   if (!apiKey)  return corsResponse('Missing API key', { status: 401 })
 
-  const userMessage = `Create a home screen widget for an app called "${appName}".`
+  const userMessage = `Create a home screen widget for an app called "${appName}".${styleHint ? ` ${styleHint}` : ''}`
 
   if (provider === 'openai') {
     return callOpenAI(apiKey, userMessage, model)
